@@ -27,7 +27,10 @@ export const retailers = {
     host: 'www.carrefour.com.ar',
     baseUrl: 'https://www.carrefour.com.ar',
     treeDepth: 5,
-    skipDepartmentPatterns: [/\(old\)/i],
+    // "Test Category" es un depto placeholder (devuelve 1 producto trucho).
+    // "Gift Cards" son productos financieros, no bienes físicos comparables por
+    // precio → fuera del comparador. Ambos verificados en el smoke de 2.0.
+    skipDepartmentPatterns: [/\(old\)/i, /^Test Category$/i, /Gift Cards?/i],
   },
 } as const satisfies Record<string, RetailerConfig>;
 
