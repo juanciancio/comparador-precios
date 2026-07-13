@@ -22,6 +22,8 @@ Estos puntos ya se verificaron manualmente contra los sitios reales. Son la base
 4. **El EAN es la llave universal para matchear productos entre cadenas.** Marcas nacionales e importadas de terceros van a matchear directo. Marcas propias del retailer NO matchean entre cadenas (esperado — son productos físicamente distintos).
 5. **Paginación VTEX tiene un cap de 2500 productos por combinación de filtros** (`_from` no puede pasar de 2500). Si una categoría excede eso, hay que subdividir por marca (`fq=B:{brandId}`) o por subcategoría.
 6. **El endpoint GraphQL `getPriceWithoutTax` NO sirve para discovery.** Sirve solo para refresh de precios cuando ya tenés los IDs. Ignoralo por ahora.
+7. **`fq=C:{catId}` solo trae productos cuando `catId` es un departamento top-level (nivel 1 del árbol).** Categorías intermedias y hojas devuelven `[]` incluso cuando los productos están asignados a ellas en su `categoriesIds`. Verificado empíricamente en Masonline: `fq=C:200005` (departamento "Aceites") → 518 productos; `fq=C:300020` (intermedia) → 0; `fq=C:500021` (hoja) → 0. **Implicancia arquitectónica:** el scraper itera departamentos top-level, no hojas. El árbol pasa a ser metadata para display, no estructura de traversal.
+8. **VTEX Masonline rate-limitea con HTTP 429 bajo ráfaga.** Devuelve header `Retry-After` (formato segundos, en teoría también soporta HTTP-date). Es el único 4xx retryable en nuestro cliente junto con 408 Request Timeout. Cap de espera: 30 segundos, valor original loguea. Si en una corrida se ven >20 hits, revisar concurrencia global antes de la próxima.
 
 ---
 
@@ -40,6 +42,8 @@ Devuelve JSON anidado con `id`, `name`, `url`, `children[]`. El `5` es la profun
 GET https://{host}/api/catalog_system/pub/products/search/?fq=C:{categoryId}&_from={n}&_to={n+49}
 ```
 Paginación en pasos de 50. `_to` es inclusivo. Cuando el response viene como `[]`, terminó la categoría.
+
+> ⚠️ `{categoryId}` **debe ser un departamento top-level** (nivel 1 del árbol de categorías). Categorías intermedias o hojas devuelven `[]`. Ver punto 7 de "Descubrimientos técnicos ya validados".
 
 **Búsqueda por marca** (para subdividir categorías con más de 2500 productos):
 ```
@@ -112,7 +116,7 @@ Cada elemento del array de productos:
 - **Cliente DB:** `postgres` (el driver de porsager, no `pg`). Simple, tipado, rápido.
 - **Migrations:** SQL crudo en `src/db/migrations/`. Nada de ORM.
 - **Logging:** `pino` con salida JSON estructurada.
-- **Retry:** implementado a mano en el cliente HTTP con backoff exponencial (100ms → 200ms → 400ms → 800ms → 1600ms, cap en 5 intentos).
+- **Retry con backoff exponencial** (100ms → 200ms → 400ms → 800ms → 1600ms, cap en 5 intentos) **en 5xx y errores de red.** No retry en 4xx **excepto 408 (Request Timeout) y 429 (Too Many Requests)**, que son la excepción semántica estándar: indican "reintentá con backoff", no "la request es inválida". Para 429, honrar `Retry-After` con cap de 30 segundos (log warning si el valor pedido excede el cap).
 - **Testing:** `vitest`. No es prioridad para el MVP, pero el cliente HTTP y el parser sí tienen tests.
 - **CLI:** un `bin/scrape.ts` ejecutable con `tsx`, que recibe `--retailer=masonline|carrefour` como flag.
 
