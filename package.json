@@ -1,0 +1,31 @@
+{
+  "name": "olavarria-comparador-precios",
+  "version": "0.1.0",
+  "description": "Comparador de precios entre supermercados argentinos (VTEX IO)",
+  "type": "module",
+  "private": true,
+  "engines": {
+    "node": ">=20"
+  },
+  "scripts": {
+    "scrape": "tsx bin/scrape.ts",
+    "db:migrate": "tsx bin/migrate.ts",
+    "smoke": "tsx bin/smoke-test.ts",
+    "test": "vitest",
+    "typecheck": "tsc --noEmit"
+  },
+  "dependencies": {
+    "p-limit": "^6.2.0",
+    "pino": "^9.6.0",
+    "postgres": "^3.4.5",
+    "undici": "^7.3.0",
+    "zod": "^3.24.1"
+  },
+  "devDependencies": {
+    "@types/node": "^22.10.7",
+    "pino-pretty": "^13.0.0",
+    "tsx": "^4.19.2",
+    "typescript": "^5.7.3",
+    "vitest": "^3.0.2"
+  }
+}
