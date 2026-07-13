@@ -9,6 +9,7 @@
   },
   "scripts": {
     "scrape": "tsx bin/scrape.ts",
+    "report": "tsx bin/report.ts",
     "db:migrate": "tsx bin/migrate.ts",
     "smoke": "tsx bin/smoke-test.ts",
     "test": "vitest",
