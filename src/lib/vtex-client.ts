@@ -51,6 +51,13 @@ function parseRetryAfterMs(headers: UndiciHeaders): number | undefined {
 
 // Un limiter por host (concurrencia 4). Si algún día se scrapean dos retailers
 // en paralelo, cada dominio tiene su propio presupuesto de cortesía.
+// Contador de 429 por proceso (métrica de la corrida). scrape.ts lo lee al final.
+let rateLimitHits = 0;
+export const getRateLimitHits = (): number => rateLimitHits;
+export const resetRateLimitHits = (): void => {
+  rateLimitHits = 0;
+};
+
 const limiters = new Map<string, LimitFunction>();
 function limiterFor(host: string): LimitFunction {
   let limit = limiters.get(host);
@@ -132,8 +139,18 @@ async function vtexGet<T>(
       });
       if (res.statusCode >= 400) {
         const body = await res.body.text();
-        const retryAfterMs =
-          res.statusCode === 429 ? parseRetryAfterMs(res.headers) : undefined;
+        let retryAfterMs: number | undefined;
+        if (res.statusCode === 429) {
+          rateLimitHits += 1;
+          retryAfterMs = parseRetryAfterMs(res.headers);
+          const rawRetryAfter = res.headers['retry-after'];
+          if (rawRetryAfter !== undefined && retryAfterMs === undefined) {
+            logger.warn(
+              { ...ctx, retryAfterRaw: rawRetryAfter },
+              'unparseable Retry-After, falling back to backoff',
+            );
+          }
+        }
         throw new HttpStatusError(res.statusCode, body.slice(0, 500), retryAfterMs);
       }
       return res.body.json();
@@ -143,11 +160,24 @@ async function vtexGet<T>(
     isRetryable,
     maxAttempts: MAX_ATTEMPTS,
     baseDelayMs: 100,
-    // En 429 con Retry-After, esperar al menos lo que pide el server (capado).
-    retryDelayMs: (error, defaultDelayMs) =>
-      error instanceof HttpStatusError && error.retryAfterMs !== undefined
-        ? Math.max(defaultDelayMs, Math.min(error.retryAfterMs, RETRY_AFTER_CAP_MS))
-        : defaultDelayMs,
+    // En 429 con Retry-After, esperar al menos lo que pide el server (capado a 30s).
+    retryDelayMs: (error, defaultDelayMs) => {
+      if (error instanceof HttpStatusError && error.retryAfterMs !== undefined) {
+        if (error.retryAfterMs > RETRY_AFTER_CAP_MS) {
+          logger.warn(
+            {
+              ...ctx,
+              status: 429,
+              retryAfterOriginalMs: error.retryAfterMs,
+              retryAfterCappedMs: RETRY_AFTER_CAP_MS,
+            },
+            'Retry-After exceeded cap',
+          );
+        }
+        return Math.max(defaultDelayMs, Math.min(error.retryAfterMs, RETRY_AFTER_CAP_MS));
+      }
+      return defaultDelayMs;
+    },
     onRetry: ({ attempt, delayMs, error }) =>
       logger.warn(
         { ...ctx, step: 'vtex_retry', attempt, delayMs, err: describeErr(error) },

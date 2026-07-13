@@ -6,7 +6,7 @@ import { logger } from './logger.ts';
 
 export type DbError = { kind: 'query'; error: unknown };
 
-type Db = ReturnType<typeof postgres>;
+export type Db = ReturnType<typeof postgres>;
 
 /**
  * SSL: Supabase (pooler o directa) exige TLS; Postgres local (Docker) no lo

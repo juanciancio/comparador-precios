@@ -7,6 +7,11 @@ export interface RetailerConfig {
   host: string;
   baseUrl: string;
   treeDepth: number;
+  /**
+   * Departamentos top-level a saltear (basura/placeholders). Por retailer:
+   * cada cadena tiene los suyos con otros nombres.
+   */
+  skipDepartmentPatterns: readonly RegExp[];
 }
 
 export const retailers = {
@@ -15,12 +20,14 @@ export const retailers = {
     host: 'www.masonline.com.ar',
     baseUrl: 'https://www.masonline.com.ar',
     treeDepth: 5,
+    skipDepartmentPatterns: [/\(old\)/i, /^categoria mercadolibre$/i, /mercadolibre/i],
   },
   carrefour: {
     slug: 'carrefour',
     host: 'www.carrefour.com.ar',
     baseUrl: 'https://www.carrefour.com.ar',
     treeDepth: 5,
+    skipDepartmentPatterns: [/\(old\)/i],
   },
 } as const satisfies Record<string, RetailerConfig>;
 
