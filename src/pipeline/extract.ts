@@ -1,5 +1,5 @@
 import { vtexProductSchema } from '../schemas/vtex-product.ts';
-import { normalizeEan, buildPromoDescription, type EanNormalizeError } from './transform.ts';
+import { normalizeEan, classifyBadEan, buildPromoDescription, type BadEanReason } from './transform.ts';
 
 /** Una fila por SKU (item). `extract` solo emite crudo; load decide skip/arrastre. */
 export interface ExtractedSku {
@@ -21,7 +21,7 @@ export interface ExtractedSku {
 export type ExtractWarning =
   | { kind: 'zod'; productId: string | null; issues: unknown }
   | { kind: 'no_ean'; productId: string; name: string }
-  | { kind: 'bad_ean'; productId: string; name: string; raw: string; error: EanNormalizeError }
+  | { kind: 'bad_ean'; productId: string; name: string; raw: string; reason: BadEanReason }
   | { kind: 'no_seller'; productId: string; skuId: string };
 
 export interface ExtractResult {
@@ -60,7 +60,7 @@ export function extractSkus(raw: unknown, host: string): ExtractResult {
         productId: product.productId,
         name: item.name,
         raw: rawEan,
-        error: eanResult.error,
+        reason: classifyBadEan(eanResult.error),
       });
       continue;
     }

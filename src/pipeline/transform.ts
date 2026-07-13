@@ -32,6 +32,21 @@ export function normalizeEan(raw: string): Result<string, EanNormalizeError> {
   return ok(normalized);
 }
 
+export type BadEanReason = 'non_numeric' | 'wrong_length' | 'other';
+
+/** Clasifica la causa de un EAN rechazado (para observabilidad del reporte). */
+export function classifyBadEan(error: EanNormalizeError): BadEanReason {
+  switch (error.kind) {
+    case 'non_digit':
+      return 'non_numeric';
+    case 'out_of_range':
+      return 'wrong_length';
+    // 'empty' no debería llegar acá (extract ya lo captura como no_ean).
+    default:
+      return 'other';
+  }
+}
+
 /**
  * Arma promo_description a partir de los teasers. Los names se ORDENAN antes de
  * unir: VTEX puede devolver los teasers en orden inestable entre requests, y sin

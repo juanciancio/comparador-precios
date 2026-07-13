@@ -76,7 +76,12 @@ async function main(): Promise<void> {
 
   const deduper = new EanDeduper(log);
   const seenEans = new Set<string>();
-  const warnings = { noEan: 0, badEan: 0, zod: 0, noSeller: 0 };
+  const warnings = {
+    noEan: 0,
+    badEan: { total: 0, non_numeric: 0, wrong_length: 0, other: 0 },
+    zod: 0,
+    noSeller: 0,
+  };
   const stats: ScrapeStats = {
     departmentsProcessed: 0,
     departmentsEmpty: 0,
@@ -97,7 +102,8 @@ async function main(): Promise<void> {
       for (const warn of extracted.warnings) {
         if (warn.kind === 'no_ean') warnings.noEan += 1;
         else if (warn.kind === 'bad_ean') {
-          warnings.badEan += 1;
+          warnings.badEan.total += 1;
+          warnings.badEan[warn.reason] += 1;
           if (errorSummary.length < 100) errorSummary.push(warn);
         } else if (warn.kind === 'no_seller') warnings.noSeller += 1;
         else {
