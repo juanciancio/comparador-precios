@@ -32,6 +32,20 @@ export function normalizeEan(raw: string): Result<string, EanNormalizeError> {
   return ok(normalized);
 }
 
+/**
+ * Arma promo_description a partir de los teasers. Los names se ORDENAN antes de
+ * unir: VTEX puede devolver los teasers en orden inestable entre requests, y sin
+ * el sort la misma promo generaría strings distintos -> falsos `changed` que
+ * ensucian price_history con vigencias artificiales. Determinístico por diseño.
+ */
+export function buildPromoDescription(
+  teasers: ReadonlyArray<{ Name?: string | null | undefined }>,
+): string | null {
+  const names = teasers.flatMap((t) => (t.Name ? [t.Name] : []));
+  if (names.length === 0) return null;
+  return names.sort().join('; ');
+}
+
 /** Normaliza campos de texto. brand vacío -> null. */
 export function normalizeSku(row: ExtractedSku): ExtractedSku {
   const brand = row.brand?.trim();

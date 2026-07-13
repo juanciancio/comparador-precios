@@ -1,5 +1,5 @@
 import { vtexProductSchema } from '../schemas/vtex-product.ts';
-import { normalizeEan, type EanNormalizeError } from './transform.ts';
+import { normalizeEan, buildPromoDescription, type EanNormalizeError } from './transform.ts';
 
 /** Una fila por SKU (item). `extract` solo emite crudo; load decide skip/arrastre. */
 export interface ExtractedSku {
@@ -83,7 +83,7 @@ export function extractSkus(raw: unknown, host: string): ExtractResult {
       price: offer.Price,
       listPrice: offer.ListPrice ?? null,
       hasPromo: offer.Teasers.length > 0,
-      promoDescription: offer.Teasers.flatMap((t) => (t.Name ? [t.Name] : [])).join('; ') || null,
+      promoDescription: buildPromoDescription(offer.Teasers),
       isAvailable: offer.IsAvailable && offer.AvailableQuantity > 0,
     });
   }
