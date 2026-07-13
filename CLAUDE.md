@@ -25,6 +25,8 @@ Estos puntos ya se verificaron manualmente contra los sitios reales. Son la base
 7. **`fq=C:{catId}` solo trae productos cuando `catId` es un departamento top-level (nivel 1 del árbol).** Categorías intermedias y hojas devuelven `[]` incluso cuando los productos están asignados a ellas en su `categoriesIds`. Verificado empíricamente en Masonline: `fq=C:200005` (departamento "Aceites") → 518 productos; `fq=C:300020` (intermedia) → 0; `fq=C:500021` (hoja) → 0. **Implicancia arquitectónica:** el scraper itera departamentos top-level, no hojas. El árbol pasa a ser metadata para display, no estructura de traversal.
 8. **VTEX Masonline rate-limitea con HTTP 429 bajo ráfaga.** Devuelve header `Retry-After` (formato segundos, en teoría también soporta HTTP-date). Es el único 4xx retryable en nuestro cliente junto con 408 Request Timeout. Cap de espera: 30 segundos, valor original loguea. Si en una corrida se ven >20 hits, revisar concurrencia global antes de la próxima.
 
+9. **El EAN se normaliza a forma canónica (strip de ceros a la izquierda) en ingesta.** El mismo GTIN físico puede reportarse en distintos formatos GS1: EAN-13, UPC-A (12 dígitos), o GTIN-14 pad-eado con ceros a la izquierda. Un JOIN por string vería `07796962999850` y `7796962999850` como productos distintos. Verificado empíricamente en Carrefour electro (`07796962999850`, 14 dígitos con padding). **Todos los EANs pasan por `pipeline/transform.ts:normalizeEan` antes de tocar la DB**: trim → validar solo dígitos → strip de ceros a la izquierda (via `BigInt`) → validar longitud canónica en [8, 14]. Los que fallan se skipean con warning `bad_ean` (no se cae el pipeline). Canonizamos "sin padding" en vez de "GTIN-14 pad-eado" porque Masonline ya venía en 13 dígitos limpios en su mayoría. **Migración retroactiva** (`bin/normalize-existing-eans.ts`, one-shot idempotente): sobre el catálogo Masonline de Fase 1 (ingerido antes de esta regla) migró 21 EANs con padding, detectó 1 colisión de merge (`0842261100804` ↔ `842261100804`, mismo producto físico duplicado — se deja para revisión manual, no se fusiona a ciegas porque implica fundir cadenas de vigencias SCD-2) y reportó 10 EANs basura pre-existentes (truncados a 4-7 dígitos, placeholders todo-ceros, un par concatenado por coma) que quedan inertes en la DB. `COUNT(*) products` = 12206 intacto post-migración, 0 huérfanos de FK.
+
 ---
 
 ## Endpoints VTEX que usamos (los únicos)
@@ -358,6 +360,8 @@ ORDER BY valid_from DESC;
 9. **No commitear `.env`.** El `.env.example` sí, con valores placeholder.
 10. **No inventar endpoints VTEX que no estén en este documento.** Si necesitás algo distinto, preguntarle a Juan primero.
 11. **No hacer INSERT ciego en `price_history`.** Toda escritura pasa por el algoritmo de la sección "Lógica de load para price_history". Si ves código que hace `INSERT INTO price_history` sin haber consultado antes la fila vigente, es un bug. Si querés "guardar el precio de hoy" y ya está guardado el mismo precio, la respuesta correcta es NO ESCRIBIR NADA.
+
+12. **No comparar EANs sin normalizar.** Cualquier lógica que compare EANs entre retailers (matching, JOIN, dedup cross-retailer) opera sobre EANs ya normalizados por `normalizeEan` (ver descubrimiento 9). Si ves código que hace `ean === otherEan` con EANs crudos de fuentes distintas, es un bug: un mismo producto físico puede venir con o sin padding de ceros y el string-compare lo perdería.
 
 ---
 

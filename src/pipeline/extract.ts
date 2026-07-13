@@ -1,4 +1,5 @@
 import { vtexProductSchema } from '../schemas/vtex-product.ts';
+import { normalizeEan, type EanNormalizeError } from './transform.ts';
 
 /** Una fila por SKU (item). `extract` solo emite crudo; load decide skip/arrastre. */
 export interface ExtractedSku {
@@ -20,6 +21,7 @@ export interface ExtractedSku {
 export type ExtractWarning =
   | { kind: 'zod'; productId: string | null; issues: unknown }
   | { kind: 'no_ean'; productId: string; name: string }
+  | { kind: 'bad_ean'; productId: string; name: string; raw: string; error: EanNormalizeError }
   | { kind: 'no_seller'; productId: string; skuId: string };
 
 export interface ExtractResult {
@@ -44,11 +46,25 @@ export function extractSkus(raw: unknown, host: string): ExtractResult {
 
   const product = parsed.data;
   for (const item of product.items) {
-    const ean = item.ean?.trim();
-    if (!ean) {
+    const rawEan = item.ean?.trim();
+    if (!rawEan) {
       warnings.push({ kind: 'no_ean', productId: product.productId, name: item.name });
       continue;
     }
+    // Canonizar antes de tocar la DB: distintos retailers reportan el mismo GTIN
+    // con o sin padding de ceros. Ver anti-pattern 12 en CLAUDE.md.
+    const eanResult = normalizeEan(rawEan);
+    if (!eanResult.ok) {
+      warnings.push({
+        kind: 'bad_ean',
+        productId: product.productId,
+        name: item.name,
+        raw: rawEan,
+        error: eanResult.error,
+      });
+      continue;
+    }
+    const ean = eanResult.value;
     const seller = item.sellers.find((s) => s.sellerDefault) ?? item.sellers[0];
     if (!seller) {
       warnings.push({ kind: 'no_seller', productId: product.productId, skuId: item.itemId });

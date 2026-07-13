@@ -1,5 +1,36 @@
 import type { Logger } from '../lib/logger.ts';
+import type { Result } from '../lib/result.ts';
+import { ok, err } from '../lib/result.ts';
 import type { ExtractedSku } from './extract.ts';
+
+export type EanNormalizeError =
+  | { kind: 'empty' }
+  | { kind: 'non_digit'; raw: string }
+  | { kind: 'out_of_range'; normalized: string; length: number };
+
+/**
+ * Normaliza un EAN/GTIN a su forma canónica strippeando ceros a la izquierda.
+ *
+ * Un mismo producto físico (GTIN) puede reportarse como EAN-13, UPC-A (12) o
+ * GTIN-14 pad-eado con ceros: `07796962999850` y `7796962999850` son el mismo
+ * producto, pero un JOIN por string los ve distintos. Canonizamos a "sin ceros
+ * a la izquierda" (verificado: Masonline ya viene en 13 dígitos limpios, así
+ * evitamos re-escribir su catálogo). Ver punto 9 de descubrimientos en CLAUDE.md.
+ *
+ * Rechaza: vacío, no-dígitos, y longitud canónica fuera de [8, 14] (basura).
+ */
+export function normalizeEan(raw: string): Result<string, EanNormalizeError> {
+  const cleaned = raw.trim();
+  if (cleaned === '') return err({ kind: 'empty' });
+  if (!/^\d+$/.test(cleaned)) return err({ kind: 'non_digit', raw: cleaned });
+  // BigInt strippea ceros a la izquierda sin perder precisión (los EAN de 14
+  // dígitos exceden Number.MAX_SAFE_INTEGER).
+  const normalized = BigInt(cleaned).toString();
+  if (normalized.length < 8 || normalized.length > 14) {
+    return err({ kind: 'out_of_range', normalized, length: normalized.length });
+  }
+  return ok(normalized);
+}
 
 /** Normaliza campos de texto. brand vacío -> null. */
 export function normalizeSku(row: ExtractedSku): ExtractedSku {
