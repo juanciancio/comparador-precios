@@ -450,6 +450,14 @@ Entry point: `bin/serve-api.ts`. Scripts: `api:dev` (watch), `api:start`, `api:b
 - El TTL comunitario del refresh se controla vía env var `REFRESH_TTL_SECONDS` para poder bajarlo en el suite de tests.
 - Ejecutar: `pnpm test:api`.
 
+### Estado
+
+**Fase 3.A completa (14/07/2026). API lista para deploy.** 10 endpoints, 39 tests
+de integración, OpenAPI spec pulida, Docker image ~377MB (node:20-alpine, runtime
+SWC sin build step; el objetivo de <300MB no se alcanza sin abandonar SWC-at-runtime,
+así que se mantuvo la arquitectura de Fase A). Falta elegir target de deploy
+(decisión abierta #7) y consumir desde la PWA (Fase 3.B).
+
 ---
 
 ## Roadmap

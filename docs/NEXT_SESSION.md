@@ -9,12 +9,22 @@
 
 - **Fase 2 cerrada:** scrapers Masonline + Carrefour en autopilot vía GitHub
   Actions (`daily-scrape.yml`, 04:00 ART) + health check semanal. Se alimenta solo.
-- **Fase 3.A en curso — API HTTP (NestJS):** montada en el mismo repo del scraper.
-  - **Fase A (bootstrap + health check): COMPLETA y commiteada.**
-  - **Fase B (Products module): es lo próximo.** No arrancada.
+- **Fase 3.A COMPLETA (14/07/2026) — API HTTP (NestJS):** montada en el mismo repo
+  del scraper. **Lista para deploy.**
+  - **10 endpoints** funcionando (Health, Products ×4, Search, Compare ×2,
+    Categories, Brands).
+  - **39 tests de integración** (Vitest + supertest, DB real) verdes: `pnpm test:api`.
+  - **OpenAPI pulida** (`/docs`): 10/10 endpoints con example y ≥2 response schemas.
+  - Global exception filter (errores unificados + `trace_id`, 500 sanitizados) y
+    timing interceptor (log estructurado + header `x-response-time-ms`).
+  - **Dockerfile multi-stage** probado (node:20-alpine, runtime SWC sin build step,
+    usuario no-root, healthcheck): imagen **~377MB**. El objetivo era <300MB; el
+    piso lo fija SWC-at-runtime (@swc/core + typescript = 60MB, no pruneables). Se
+    aceptó mantener la arquitectura sin build step (decisión de Fase A).
+  - Ver `docs/API.md` para setup, endpoints, env vars y deploy.
 
 Ver `CLAUDE.md` → sección **"API HTTP (NestJS)"** para stack, runtime, config de TS
-y convenciones (leer antes de codear Fase B).
+y convenciones.
 
 ---
 
@@ -39,40 +49,26 @@ y convenciones (leer antes de codear Fase B).
 
 ## 3. Próximos pasos en orden
 
-**Inmediato (próxima sesión — Fase B):**
+Fase 3.A (Fases A→E) está **completa**. Lo que sigue:
 
-Implementar `ProductsController` con los 4 endpoints:
+**Inmediato — Deploy de la API:**
 
-1. `GET /products` con paginación y filtros (`limit`, `offset`, `brand`, `category`, `only_matched`, `sort_by`, `sort_dir`).
-2. `GET /products/:ean` con detalle individual.
-3. `GET /products/:ean/price-history` con histórico opcional filtrable por retailer y rango de fechas.
-4. `POST /products/:ean/refresh` — refresh on-demand con TTL comunitario 60s.
+- Elegir target: **Fly.io vs Railway vs Render** (decisión abierta #7 en `CLAUDE.md`).
+- El `Dockerfile` ya está probado y funcionando (build + run + healthcheck OK).
+- Envs mínimas en el target: `DATABASE_URL` (Session pooler de Supabase),
+  `NODE_ENV=production`, `CORS_ORIGINS` con el dominio de la PWA. Ver tabla en
+  `docs/API.md`.
+- Al deployar, apuntar el healthcheck del proveedor a `/health`.
 
-Detalle del endpoint 4 (`POST /products/:ean/refresh`):
-- Chequea si `retailer_products.last_seen_at` es más antiguo que 60 segundos.
-- Si sí: fetch en vivo contra cada retailer donde existe el producto, corre `extract` + `transform` + `load` reusando el pipeline existente.
-- Si no: devuelve la data actual sin hacer fetch (cache comunitario — protege contra ráfagas y rate limiting de VTEX).
-- Response incluye el producto actualizado + `{ was_refreshed: boolean, updated_at: timestamp }`.
-- Loggear si hubo cambio de precio real (para tracking futuro cuando se implemente SSE broadcast).
+**Después — Fase 3.B (PWA):**
 
-Verificar con `EXPLAIN ANALYZE` la query de `only_matched=true` con filtros combinados. Objetivo: <200ms contra Supabase. Si el planner no usa índices, agregar migración `006_indices_for_api.sql` con los índices faltantes.
+- PWA con **Next.js en repo separado**, consumiendo el OpenAPI (`/docs-json`).
+- Mostrar timestamp "actualizado hace X" (ver "Arquitectura de refresh de precios").
+- Consumir `POST /products/:ean/refresh` desde la ficha detalle.
+- Implementar el `suspicion_score` en el frontend (decisión abierta #6): reglas
+  `diff_pct > 200%`, precio absoluto > $500k, mismatch pack/unidad.
 
-Reportar al terminar: outputs de `curl` de los 4 endpoints, un ejemplo con filtros combinados, `EXPLAIN ANALYZE` de la query más pesada, e índices nuevos si hubo. Para el endpoint refresh, mostrar: (a) resultado de un primer refresh (was_refreshed: true si el producto es viejo), (b) resultado del mismo refresh 5 segundos después (was_refreshed: false — cache comunitario funcionando).
-
-### Siguientes fases dentro de 3.A
-
-- **Fase C:** Search (`GET /search`) + Compare (`GET /compare`, `GET /compare/stats`).
-  Recordar excluir `brand IN ('Genérico','Generico')` en compare.
-- **Fase D:** Categories (`GET /categories`) + Brands (`GET /brands`). Cacheables.
-- **Fase E:** pulido OpenAPI (contrato con PWA/Flutter, prioridad alta), global
-  exception filter, timing interceptor, **Dockerfile multi-stage**, tests de
-  integración con supertest (≥1 por módulo, contra DB real).
-
-### Después de Fase 3.A
-
-- Sesión propia para **deployar la API** (target por decidir: Fly.io / Railway /
-  Render — decisión abierta #7 en `CLAUDE.md`).
-- **Fase 3.B:** PWA con Next.js en **repo separado**, consumiendo el OpenAPI.
+**Fase 3.C (post-lanzamiento):** SSE broadcast (ver "Arquitectura de refresh de precios").
 
 ---
 
