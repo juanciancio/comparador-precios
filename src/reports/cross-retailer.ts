@@ -1,5 +1,6 @@
 import '../lib/env.ts';
 import { db } from '../lib/db.ts';
+import { diffBucketIndex, DIFF_BUCKET_COUNT, DIFF_TIE_TOLERANCE_PCT } from '../lib/diff-buckets.ts';
 
 /**
  * Reporte cruzado por EAN entre Masonline y Carrefour. Es la métrica que valida
@@ -20,7 +21,8 @@ interface MatchRow {
   diff_pct: string; // (carrefour - masonline) / masonline * 100
 }
 
-const TIE_TOLERANCE_PCT = 1; // |diff| <= 1% se considera empate
+// Etiquetas de display del histograma (el orden matchea los buckets de diff-buckets.ts).
+const BUCKET_LABELS = ['< 5%', '5–10%', '10–25%', '25–50%', '≥ 50%'] as const;
 
 const fmtMoney = (s: string): string =>
   Number(s).toLocaleString('es-AR', { minimumFractionDigits: 2, maximumFractionDigits: 2 });
@@ -105,24 +107,18 @@ export async function crossRetailerReport(): Promise<string> {
   const diffs = rows.map((r) => Number(r.diff_pct));
   const absDiffs = diffs.map((d) => Math.abs(d));
 
-  // 2) Histograma de |diferencia %|
-  const buckets = [
-    { label: '< 5%', test: (d: number) => d < 5 },
-    { label: '5–10%', test: (d: number) => d >= 5 && d < 10 },
-    { label: '10–25%', test: (d: number) => d >= 10 && d < 25 },
-    { label: '25–50%', test: (d: number) => d >= 25 && d < 50 },
-    { label: '≥ 50%', test: (d: number) => d >= 50 },
-  ];
-  const bucketCounts = buckets.map((b) => absDiffs.filter(b.test).length);
+  // 2) Histograma de |diferencia %| (buckets compartidos con /compare/stats).
+  const bucketCounts = new Array<number>(DIFF_BUCKET_COUNT).fill(0);
+  for (const d of absDiffs) bucketCounts[diffBucketIndex(d)]! += 1;
   const maxBucket = Math.max(...bucketCounts);
   line();
   rule();
   line('  DISTRIBUCIÓN DE DIFERENCIAS DE PRECIO (|diff %|)');
   rule();
-  buckets.forEach((b, i) => {
+  BUCKET_LABELS.forEach((label, i) => {
     const cnt = bucketCounts[i]!;
     const pct = ((cnt / total) * 100).toFixed(1);
-    line(`  ${pad(b.label, 8)} ${padL(cnt.toLocaleString('es-AR'), 7)} (${padL(pct, 5)}%) ${bar(cnt, maxBucket)}`);
+    line(`  ${pad(label, 8)} ${padL(cnt.toLocaleString('es-AR'), 7)} (${padL(pct, 5)}%) ${bar(cnt, maxBucket)}`);
   });
 
   // 3) Ranking "quién es más barato" (tolerancia 1% = empate)
@@ -130,14 +126,14 @@ export async function crossRetailerReport(): Promise<string> {
   let carCheaper = 0;
   let ties = 0;
   for (const d of diffs) {
-    if (Math.abs(d) <= TIE_TOLERANCE_PCT) ties += 1;
+    if (Math.abs(d) <= DIFF_TIE_TOLERANCE_PCT) ties += 1;
     else if (d > 0) masCheaper += 1; // carrefour más caro -> masonline más barato
     else carCheaper += 1;
   }
   const pctOf = (n: number): string => ((n / total) * 100).toFixed(1);
   line();
   rule();
-  line(`  ¿QUIÉN ES MÁS BARATO? (empate = |diff| ≤ ${TIE_TOLERANCE_PCT}%)`);
+  line(`  ¿QUIÉN ES MÁS BARATO? (empate = |diff| ≤ ${DIFF_TIE_TOLERANCE_PCT}%)`);
   rule();
   line(`  Masonline más barato: ${padL(masCheaper.toLocaleString('es-AR'), 7)} (${pctOf(masCheaper)}%)`);
   line(`  Carrefour más barato: ${padL(carCheaper.toLocaleString('es-AR'), 7)} (${pctOf(carCheaper)}%)`);
@@ -151,7 +147,7 @@ export async function crossRetailerReport(): Promise<string> {
   line(`  ${pad('EAN', 15)} ${padL('Mas $', 13)} ${padL('Car $', 13)} ${padL('diff%', 9)}  Producto`);
   for (const r of rows.slice(0, 20)) {
     const d = Number(r.diff_pct);
-    const cheaper = Math.abs(d) <= TIE_TOLERANCE_PCT ? '=' : d > 0 ? 'M' : 'C';
+    const cheaper = Math.abs(d) <= DIFF_TIE_TOLERANCE_PCT ? '=' : d > 0 ? 'M' : 'C';
     line(
       `  ${pad(r.ean, 15)} ${padL(fmtMoney(r.masonline_price), 13)} ${padL(fmtMoney(r.carrefour_price), 13)} ${padL(r.diff_pct, 8)}% ${cheaper} ${(r.brand ? `[${r.brand}] ` : '')}${r.name_canonical}`.slice(0, 120),
     );

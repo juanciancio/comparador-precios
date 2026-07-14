@@ -1,6 +1,11 @@
 import { Injectable } from '@nestjs/common';
 import type { Db } from '../../../lib/db.ts';
 import { InjectPg } from '../../common/database/database.tokens.ts';
+import {
+  diffBucketIndex,
+  DIFF_BUCKET_COUNT,
+  DIFF_TIE_TOLERANCE_PCT,
+} from '../../../lib/diff-buckets.ts';
 import type { CompareRow, CompareStats } from './dto/compare.dto.ts';
 
 export interface CompareFilters {
@@ -13,8 +18,9 @@ export interface CompareFilters {
   sortDir: 'asc' | 'desc';
 }
 
-/** |diff| <= 1% se considera empate (mismo criterio que el reporte cross-retailer). */
-const TIE_TOLERANCE_PCT = 1;
+// Etiquetas del histograma para la respuesta JSON (contrato de la API). El orden
+// matchea los buckets de diff-buckets.ts; las fronteras viven ahí, no acá.
+const STATS_BUCKET_LABELS = ['<5%', '5-10%', '10-25%', '25-50%', '>=50%'] as const;
 
 interface RawCompareRow {
   ean: string;
@@ -26,7 +32,7 @@ interface RawCompareRow {
 }
 
 function cheaperOf(diffPct: number): CompareRow['cheaper'] {
-  if (Math.abs(diffPct) <= TIE_TOLERANCE_PCT) return 'tie';
+  if (Math.abs(diffPct) <= DIFF_TIE_TOLERANCE_PCT) return 'tie';
   // diff_pct = (carrefour - masonline)/masonline*100; positivo => carrefour más caro.
   return diffPct > 0 ? 'masonline' : 'carrefour';
 }
@@ -100,50 +106,41 @@ export class CompareRepository {
     return { data, total: totalRows[0]!.total };
   }
 
-  /** Stats globales del match cross-retailer (sin filtros). Replica el reporte en JSON. */
+  /**
+   * Stats globales del match cross-retailer (sin filtros). Replica el reporte en
+   * JSON: fetchea los diff REDONDEADOS a 2 decimales y bucketea en JS con el mismo
+   * `diffBucketIndex` que usa el reporte batch — fuente única de fronteras.
+   */
   async stats(): Promise<CompareStats> {
     const sql = this.sql;
 
-    const aggRows = await sql<
-      {
-        total: number;
-        b_lt5: number;
-        b_5_10: number;
-        b_10_25: number;
-        b_25_50: number;
-        b_gte50: number;
-        tie: number;
-        mas_cheaper: number;
-        car_cheaper: number;
-      }[]
-    >`
-      WITH matched AS (
-        SELECT (c.price - m.price) / m.price * 100 AS diff
-        FROM products p
-        JOIN price_history m
-          ON m.ean = p.ean
-          AND m.retailer_id = (SELECT id FROM retailers WHERE slug = 'masonline')
-          AND m.valid_to IS NULL AND m.is_available
-        JOIN price_history c
-          ON c.ean = p.ean
-          AND c.retailer_id = (SELECT id FROM retailers WHERE slug = 'carrefour')
-          AND c.valid_to IS NULL AND c.is_available
-        WHERE m.price > 0
-          AND (p.brand IS NULL OR p.brand NOT IN ('Genérico', 'Generico'))
-      )
-      SELECT
-        COUNT(*)::int AS total,
-        COUNT(*) FILTER (WHERE ABS(diff) < 5)::int AS b_lt5,
-        COUNT(*) FILTER (WHERE ABS(diff) >= 5 AND ABS(diff) < 10)::int AS b_5_10,
-        COUNT(*) FILTER (WHERE ABS(diff) >= 10 AND ABS(diff) < 25)::int AS b_10_25,
-        COUNT(*) FILTER (WHERE ABS(diff) >= 25 AND ABS(diff) < 50)::int AS b_25_50,
-        COUNT(*) FILTER (WHERE ABS(diff) >= 50)::int AS b_gte50,
-        COUNT(*) FILTER (WHERE ABS(diff) <= ${TIE_TOLERANCE_PCT})::int AS tie,
-        COUNT(*) FILTER (WHERE diff > ${TIE_TOLERANCE_PCT})::int AS mas_cheaper,
-        COUNT(*) FILTER (WHERE diff < ${-TIE_TOLERANCE_PCT})::int AS car_cheaper
-      FROM matched
+    const diffRows = await sql<{ diff: string }[]>`
+      SELECT ROUND(((c.price - m.price) / m.price * 100)::numeric, 2)::text AS diff
+      FROM products p
+      JOIN price_history m
+        ON m.ean = p.ean
+        AND m.retailer_id = (SELECT id FROM retailers WHERE slug = 'masonline')
+        AND m.valid_to IS NULL AND m.is_available
+      JOIN price_history c
+        ON c.ean = p.ean
+        AND c.retailer_id = (SELECT id FROM retailers WHERE slug = 'carrefour')
+        AND c.valid_to IS NULL AND c.is_available
+      WHERE m.price > 0
+        AND (p.brand IS NULL OR p.brand NOT IN ('Genérico', 'Generico'))
     `;
-    const a = aggRows[0]!;
+
+    const total = diffRows.length;
+    const bucketCounts = new Array<number>(DIFF_BUCKET_COUNT).fill(0);
+    let masCheaper = 0;
+    let carCheaper = 0;
+    let tie = 0;
+    for (const r of diffRows) {
+      const d = Number(r.diff);
+      bucketCounts[diffBucketIndex(Math.abs(d))]! += 1;
+      if (Math.abs(d) <= DIFF_TIE_TOLERANCE_PCT) tie += 1;
+      else if (d > 0) masCheaper += 1; // carrefour más caro => masonline más barato
+      else carCheaper += 1;
+    }
 
     const exRows = await sql<{ masonline_only: number; carrefour_only: number }[]>`
       WITH m AS (
@@ -162,22 +159,18 @@ export class CompareRepository {
     `;
     const ex = exRows[0]!;
 
-    const total = a.total;
     const pct = (n: number): number => (total === 0 ? 0 : Math.round((n / total) * 1000) / 10);
 
     return {
       total_matched: total,
-      diff_histogram: [
-        { bucket: '<5%', count: a.b_lt5, pct: pct(a.b_lt5) },
-        { bucket: '5-10%', count: a.b_5_10, pct: pct(a.b_5_10) },
-        { bucket: '10-25%', count: a.b_10_25, pct: pct(a.b_10_25) },
-        { bucket: '25-50%', count: a.b_25_50, pct: pct(a.b_25_50) },
-        { bucket: '>=50%', count: a.b_gte50, pct: pct(a.b_gte50) },
-      ],
+      diff_histogram: STATS_BUCKET_LABELS.map((bucket, i) => {
+        const count = bucketCounts[i]!;
+        return { bucket, count, pct: pct(count) };
+      }),
       cheaper: {
-        masonline: { count: a.mas_cheaper, pct: pct(a.mas_cheaper) },
-        carrefour: { count: a.car_cheaper, pct: pct(a.car_cheaper) },
-        tie: { count: a.tie, pct: pct(a.tie) },
+        masonline: { count: masCheaper, pct: pct(masCheaper) },
+        carrefour: { count: carCheaper, pct: pct(carCheaper) },
+        tie: { count: tie, pct: pct(tie) },
       },
       exclusives: {
         masonline_only: ex.masonline_only,
