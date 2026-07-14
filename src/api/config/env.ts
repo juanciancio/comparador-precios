@@ -18,6 +18,9 @@ const EnvSchema = z.object({
   // Throttler window in seconds and max requests per window per IP.
   RATE_LIMIT_TTL: z.coerce.number().int().positive().default(60),
   RATE_LIMIT_LIMIT: z.coerce.number().int().positive().default(100),
+  // TTL comunitario del refresh on-demand. Expuesto como env para poder bajarlo
+  // (p. ej. 2s) en el suite de tests de integración.
+  REFRESH_TTL_SECONDS: z.coerce.number().int().min(0).default(60),
 });
 
 export type ApiEnv = z.infer<typeof EnvSchema>;

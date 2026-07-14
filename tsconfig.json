@@ -24,6 +24,7 @@
   "include": ["src/**/*.ts", "bin/**/*.ts", "tests/**/*.ts"],
   // src/api usa decoradores y su propia config (tsconfig.api.json). Se excluye
   // del typecheck base para no forzar experimentalDecorators/verbatimModuleSyntax
-  // sobre el scraper. `pnpm api:build` cubre src/api.
-  "exclude": ["node_modules", "src/api", "bin/serve-api.ts"]
+  // sobre el scraper. `pnpm api:build` cubre src/api. `tests/api` se excluye por
+  // lo mismo: importa src/api, así que se typechea con tsconfig.api.json.
+  "exclude": ["node_modules", "src/api", "bin/serve-api.ts", "tests/api"]
 }

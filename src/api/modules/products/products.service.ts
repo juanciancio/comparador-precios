@@ -1,5 +1,6 @@
 import { BadRequestException, Injectable, NotFoundException } from '@nestjs/common';
 import { retailers as retailerConfig, type RetailerSlug } from '../../../config/retailers.ts';
+import { apiEnv } from '../../config/env.ts';
 import { logger } from '../../../lib/logger.ts';
 import { fetchProductsByEan } from '../../../lib/vtex-client.ts';
 import { extractSkus } from '../../../pipeline/extract.ts';
@@ -17,8 +18,9 @@ import type {
   PriceHistoryQueryDto,
 } from './dto/products.dto.ts';
 
-/** Ventana de cache comunitario del refresh on-demand. Protege a VTEX de ráfagas. */
-const REFRESH_TTL_MS = 60_000;
+/** Ventana de cache comunitario del refresh on-demand. Protege a VTEX de ráfagas.
+ * Configurable vía REFRESH_TTL_SECONDS (default 60; se baja en tests). */
+const REFRESH_TTL_MS = apiEnv.REFRESH_TTL_SECONDS * 1000;
 
 export interface ListProductsResult {
   data: Product[];
