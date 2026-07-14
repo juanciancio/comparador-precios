@@ -1,0 +1,34 @@
+import { Module } from '@nestjs/common';
+import { APP_GUARD, APP_PIPE } from '@nestjs/core';
+import { ThrottlerGuard, ThrottlerModule } from '@nestjs/throttler';
+import { LoggerModule } from 'nestjs-pino';
+import { ZodValidationPipe } from 'nestjs-zod';
+import { DatabaseModule } from './common/database/database.module.ts';
+import { HealthModule } from './modules/health/health.module.ts';
+import { apiEnv, isProduction } from './config/env.ts';
+
+@Module({
+  imports: [
+    LoggerModule.forRoot({
+      pinoHttp: {
+        level: apiEnv.LOG_LEVEL,
+        base: { service: 'api' },
+        // Pretty output in dev only; pino-pretty is a devDependency and is
+        // pruned in the production image.
+        ...(isProduction()
+          ? {}
+          : { transport: { target: 'pino-pretty', options: { singleLine: true } } }),
+      },
+    }),
+    ThrottlerModule.forRoot([
+      { ttl: apiEnv.RATE_LIMIT_TTL * 1000, limit: apiEnv.RATE_LIMIT_LIMIT },
+    ]),
+    DatabaseModule,
+    HealthModule,
+  ],
+  providers: [
+    { provide: APP_GUARD, useClass: ThrottlerGuard },
+    { provide: APP_PIPE, useClass: ZodValidationPipe },
+  ],
+})
+export class AppModule {}
