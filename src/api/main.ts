@@ -28,7 +28,8 @@ function setupSwagger(app: INestApplication): void {
 export async function createApp(): Promise<INestApplication> {
   const app = await NestFactory.create(AppModule, { bufferLogs: true });
   app.useLogger(app.get(Logger));
-  app.enableCors({ origin: corsOrigin(), methods: ['GET', 'OPTIONS'] });
+  // POST habilitado por el refresh on-demand (POST /products/:ean/refresh).
+  app.enableCors({ origin: corsOrigin(), methods: ['GET', 'POST', 'OPTIONS'] });
   setupSwagger(app);
   return app;
 }

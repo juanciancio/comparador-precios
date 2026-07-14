@@ -237,6 +237,20 @@ export function fetchProductsByCategory(
   });
 }
 
+/**
+ * Producto(s) por EAN. Lo usa el refresh on-demand de la API (no el scraper).
+ * `alternateIds_Ean` devuelve el producto cuyo EAN matchea; puede traer 0 o 1
+ * (raramente más si el retailer reusa el código). El caller filtra por EAN
+ * normalizado antes de cargar.
+ */
+export function fetchProductsByEan(
+  host: string,
+  ean: string,
+): Promise<Result<unknown[], VtexError>> {
+  const query = `/api/catalog_system/pub/products/search/?fq=alternateIds_Ean:${encodeURIComponent(ean)}`;
+  return vtexGet(host, query, productListSchema, { host, ean, step: 'products_by_ean' });
+}
+
 export function fetchProductsByBrand(
   host: string,
   categoryId: string,

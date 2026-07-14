@@ -1,0 +1,196 @@
+import { BadRequestException, Injectable, NotFoundException } from '@nestjs/common';
+import { retailers as retailerConfig, type RetailerSlug } from '../../../config/retailers.ts';
+import { logger } from '../../../lib/logger.ts';
+import { fetchProductsByEan } from '../../../lib/vtex-client.ts';
+import { extractSkus } from '../../../pipeline/extract.ts';
+import { normalizeEan, normalizeSku, EanDeduper } from '../../../pipeline/transform.ts';
+import { loadRun } from '../../../pipeline/load.ts';
+import {
+  ProductsRepository,
+  type ListFilters,
+  type PriceHistoryFilters,
+  type RetailerProductRef,
+} from './products.repository.ts';
+import type { Product, PriceHistoryEntry } from './dto/products.dto.ts';
+import type {
+  ListProductsQueryDto,
+  PriceHistoryQueryDto,
+} from './dto/products.dto.ts';
+
+/** Ventana de cache comunitario del refresh on-demand. Protege a VTEX de ráfagas. */
+const REFRESH_TTL_MS = 60_000;
+
+export interface ListProductsResult {
+  data: Product[];
+  pagination: { limit: number; offset: number; total: number };
+}
+
+export interface RefreshResult {
+  product: Product;
+  was_refreshed: boolean;
+  updated_at: string;
+}
+
+@Injectable()
+export class ProductsService {
+  constructor(private readonly repo: ProductsRepository) {}
+
+  async list(query: ListProductsQueryDto): Promise<ListProductsResult> {
+    const filters: ListFilters = {
+      limit: query.limit,
+      offset: query.offset,
+      brand: query.brand,
+      category: query.category,
+      onlyMatched: query.only_matched,
+      sortBy: query.sort_by,
+      sortDir: query.sort_dir,
+    };
+    const { data, total } = await this.repo.listProducts(filters);
+    return {
+      data,
+      pagination: { limit: query.limit, offset: query.offset, total },
+    };
+  }
+
+  async getOne(rawEan: string): Promise<Product> {
+    const ean = this.normalize(rawEan);
+    const product = await this.repo.getProduct(ean);
+    if (!product) throw new NotFoundException(`No existe producto con EAN ${ean}`);
+    return product;
+  }
+
+  async priceHistory(rawEan: string, query: PriceHistoryQueryDto): Promise<{
+    ean: string;
+    history: PriceHistoryEntry[];
+  }> {
+    const ean = this.normalize(rawEan);
+    if (query.retailer) await this.assertRetailerExists(query.retailer);
+
+    if (!(await this.repo.productExists(ean))) {
+      throw new NotFoundException(`No existe producto con EAN ${ean}`);
+    }
+
+    const filters: PriceHistoryFilters = {
+      retailer: query.retailer,
+      from: query.from,
+      to: query.to,
+    };
+    const history = await this.repo.priceHistory(ean, filters);
+    return { ean, history };
+  }
+
+  async refresh(rawEan: string): Promise<RefreshResult> {
+    const ean = this.normalize(rawEan);
+    const refs = await this.repo.retailerProductsForEan(ean);
+
+    if (refs.length === 0) {
+      // Sin mapeo a ninguna cadena: si ni siquiera existe el producto, 404.
+      if (!(await this.repo.productExists(ean))) {
+        throw new NotFoundException(`No existe producto con EAN ${ean}`);
+      }
+      const product = await this.repo.getProduct(ean);
+      return {
+        product: product!,
+        was_refreshed: false,
+        updated_at: new Date().toISOString(),
+      };
+    }
+
+    const freshestMs = Math.max(...refs.map((r) => r.lastSeenAt.getTime()));
+    const ageMs = Date.now() - freshestMs;
+
+    let wasRefreshed = false;
+    if (ageMs >= REFRESH_TTL_MS) {
+      wasRefreshed = await this.refreshFromRetailers(ean, refs);
+    }
+
+    const product = await this.repo.getProduct(ean);
+    if (!product) throw new NotFoundException(`No existe producto con EAN ${ean}`);
+
+    // updated_at = frescura efectiva = último last_seen_at entre las ofertas vigentes.
+    const lastSeen = product.retailers
+      .map((r) => Date.parse(r.lastSeenAt))
+      .filter((t) => Number.isFinite(t));
+    const updatedAt =
+      lastSeen.length > 0
+        ? new Date(Math.max(...lastSeen)).toISOString()
+        : new Date().toISOString();
+
+    return { product, was_refreshed: wasRefreshed, updated_at: updatedAt };
+  }
+
+  /**
+   * Fetch en vivo + extract + transform + load para cada cadena donde existe el
+   * producto. Reusa el pipeline del scraper (idempotente). Best-effort: si una
+   * cadena falla, se loguea y se sigue. Devuelve true si al menos una cargó.
+   */
+  private async refreshFromRetailers(
+    ean: string,
+    refs: RetailerProductRef[],
+  ): Promise<boolean> {
+    let anyLoaded = false;
+
+    for (const ref of refs) {
+      const config = retailerConfig[ref.slug as RetailerSlug];
+      if (!config) {
+        logger.warn({ ean, retailer: ref.slug, step: 'refresh' }, 'unknown retailer slug, skipping');
+        continue;
+      }
+      const log = logger.child({ service: 'api', step: 'refresh', ean, retailer: ref.slug });
+
+      const fetched = await fetchProductsByEan(config.host, ean);
+      if (!fetched.ok) {
+        log.error({ err: fetched.error }, 'live fetch failed, skipping retailer');
+        continue;
+      }
+
+      const deduper = new EanDeduper(log);
+      for (const raw of fetched.value) {
+        for (const row of extractSkus(raw, config.host).rows) {
+          const normalized = normalizeSku(row);
+          // Solo el producto pedido: alternateIds_Ean puede traer variantes con otro EAN.
+          if (normalized.ean === ean) deduper.add(normalized);
+        }
+      }
+
+      if (deduper.size === 0) {
+        log.warn({}, 'live fetch returned no SKU for this EAN');
+        continue;
+      }
+
+      const loaded = await loadRun(ref.retailerId, deduper.values(), log);
+      if (!loaded.ok) {
+        log.error({ err: loaded.error.error }, 'load failed during refresh');
+        continue;
+      }
+      anyLoaded = true;
+
+      if (loaded.value.priceNew > 0 || loaded.value.priceChanged > 0) {
+        // Señal para el futuro SSE broadcast (Fase 3.C).
+        log.info(
+          { priceNew: loaded.value.priceNew, priceChanged: loaded.value.priceChanged },
+          'refresh produced a real price change',
+        );
+      }
+    }
+
+    return anyLoaded;
+  }
+
+  private normalize(rawEan: string): string {
+    const result = normalizeEan(rawEan);
+    if (!result.ok) {
+      throw new BadRequestException(`EAN inválido: ${rawEan}`);
+    }
+    return result.value;
+  }
+
+  private async assertRetailerExists(slug: string): Promise<void> {
+    const retailers = await this.repo.retailers();
+    if (!retailers.some((r) => r.slug === slug)) {
+      throw new BadRequestException(
+        `retailer desconocido: ${slug} (válidos: ${retailers.map((r) => r.slug).join(', ')})`,
+      );
+    }
+  }
+}

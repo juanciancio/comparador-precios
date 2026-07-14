@@ -5,6 +5,7 @@ import { LoggerModule } from 'nestjs-pino';
 import { ZodValidationPipe } from 'nestjs-zod';
 import { DatabaseModule } from './common/database/database.module.ts';
 import { HealthModule } from './modules/health/health.module.ts';
+import { ProductsModule } from './modules/products/products.module.ts';
 import { apiEnv, isProduction } from './config/env.ts';
 
 @Module({
@@ -25,6 +26,7 @@ import { apiEnv, isProduction } from './config/env.ts';
     ]),
     DatabaseModule,
     HealthModule,
+    ProductsModule,
   ],
   providers: [
     { provide: APP_GUARD, useClass: ThrottlerGuard },
