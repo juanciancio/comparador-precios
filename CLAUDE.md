@@ -27,7 +27,11 @@ Estos puntos ya se verificaron manualmente contra los sitios reales. Son la base
 
 9. **El EAN se normaliza a forma canónica (strip de ceros a la izquierda) en ingesta.** El mismo GTIN físico puede reportarse en distintos formatos GS1: EAN-13, UPC-A (12 dígitos), o GTIN-14 pad-eado con ceros a la izquierda. Un JOIN por string vería `07796962999850` y `7796962999850` como productos distintos. Verificado empíricamente en Carrefour electro (`07796962999850`, 14 dígitos con padding). **Todos los EANs pasan por `pipeline/transform.ts:normalizeEan` antes de tocar la DB**: trim → validar solo dígitos → strip de ceros a la izquierda (via `BigInt`) → validar longitud canónica en [8, 14]. Los que fallan se skipean con warning `bad_ean` (no se cae el pipeline). Canonizamos "sin padding" en vez de "GTIN-14 pad-eado" porque Masonline ya venía en 13 dígitos limpios en su mayoría. **Migración retroactiva** (`bin/normalize-existing-eans.ts`, one-shot idempotente): sobre el catálogo Masonline de Fase 1 (ingerido antes de esta regla) migró 21 EANs con padding, detectó 1 colisión de merge (`0842261100804` ↔ `842261100804`, mismo producto físico duplicado — se deja para revisión manual, no se fusiona a ciegas porque implica fundir cadenas de vigencias SCD-2) y reportó 10 EANs basura pre-existentes (truncados a 4-7 dígitos, placeholders todo-ceros, un par concatenado por coma) que quedan inertes en la DB. `COUNT(*) products` = 12206 intacto post-migración, 0 huérfanos de FK.
 
-10. **Carrefour — hallazgos empíricos de la corrida full (Fase 2, runId 8).** 20 departamentos top-level, 18 tras saltear basura (`Test Category` placeholder, `Gift Cards` = productos financieros no comparables). **Cola muerta ~76%:** de 108.781 EANs únicos vistos, 82.523 se skipearon como "primer avistaje sin precio observable" (mismo patrón que Masonline: VTEX ordena por relevancia y la cola profunda es catálogo discontinuado con `Price: 0`); 26.258 quedaron con precio real. **cap_2500 mucho más frecuente que en Masonline:** 13 de 18 deptos exceden 2.500 y se subdividen por marca (Masonline: 4). La subdivisión por marca resuelve casi todo, **pero 2 combos depto+marca siguen excediendo 2.500** (`brandId 2000001` — marca genérica catch-all — en Hogar y en Juguetería): quedan best-effort a 2.500, **gap de cobertura conocido que requiere subdividir por subcategoría** (pendiente para cuando importe; hoy se pierden productos en esos 2 combos). **Los EANs rechazados (`bad_ean`, 1.028: 379 non_numeric + 649 wrong_length) NO son GTINs recuperables:** son códigos internos (prefijos con letra tipo `A4711081253679`, sufijos `_gr`, placeholders todo-cero, SKUs de 5 dígitos). No vale la pena una heurística de recovery (no hay UPC-A de 12 dígitos que pad-ear). **Resultado del match cross-retailer:** 4.129 EANs matchean con Masonline (ambos con precio vigente y disponible), 8.077 exclusivos de Masonline, 22.122 exclusivos de Carrefour.
+10. **Cap de 2500 con brandId `Genérico` es irrecuperable con nuestras herramientas actuales.** Verificado en Carrefour: departamentos Hogar y Juguetería tienen >2500 productos con brandId "Genérico" (marca-catchall de VTEX). Subdividir por brand no ayuda porque la marca sigue siendo la misma. Fix requeriría subdividir por subcategoría, lo cual es complejidad extra en el scraper. **Decisión operativa:** aceptar el gap porque productos `Genérico` no matchean cross-retailer (cada cadena usa la categoría distinto). Documentado como gap conocido; se revisita si aparece un caso de negocio.
+
+11. **`badEan` en Carrefour son códigos internos, NO GTINs mal formados.** Verificado empíricamente: la muestra de `non_numeric` y `wrong_length` son SKUs internos del retailer, no EANs recuperables por heurística GS1. **No se implementa recovery.** La observabilidad vive en `scrape_runs.bad_ean_total`.
+
+12. **Idempotencia real ≠ "DB count no cambia".** El criterio "misma DB count entre corridas" solo se cumple con snapshot congelado de la API. En corridas contra API en vivo con drift real (precios movidos, productos que reingresan de cola muerta), el criterio correcto es: **input idéntico a nivel producto → cero escrituras para ese producto**. Verificable por bucket: productos en `price.unchanged` no disparan writes. Deltas en `price.new`/`price.changed` deben reconciliar con drift observable, no ser bugs.
 
 ---
 
@@ -417,8 +421,21 @@ Estas son decisiones que **NO** debe tomar Claude Code solo. Si el trabajo requi
 1. **Frontend framework definitivo.** Se planea Next.js pero puede ser Tauri desktop o incluso ambas.
 2. **Manejo de multi-sucursal (bindingId).** Postponed a v2. Por ahora usamos el binding default de cada retailer (el que devuelve el servidor sin parámetros).
 3. **Cadena de scraping para Carrefour.** No hemos verificado el árbol de categorías todavía. Sesión 2 arranca con exploración.
-4. **Dónde correr los cronjobs.** VPS propio, GitHub Actions, o cron de Supabase edge functions. Se decide en Fase 2.
+4. **Dónde correr los cronjobs.** Decidido en post-Fase 2: **GitHub Actions** con schedule diario. Motivos: gratis, versionado con el código, notificación por email automática al owner en fallos, no requiere infra propia. Alternativas descartadas por complejidad (VPS propio, Supabase edge functions con time triggers). Se revisita solo si GitHub Actions da problemas de rate-limiting con VTEX (los runners están en US-East).
 5. **Estrategia de bloqueos futuros.** Si Carrefour empieza a bloquear con Cloudflare, se evalúa proxies residenciales. No es problema hoy.
+6. **Estrategia de outliers en el frontend/app.** En Fase 3 hay que implementar `suspicion_score` calculado por producto matcheado (reglas: `diff_pct > 200%`, `precio absoluto > $500k`, mismatch de palabras clave pack/unidad). Por default, ocultar `suspicion_score` alto; toggle para power users.
+
+---
+
+## Data quality signals conocidas
+
+Estas son características de la data cruda que retailers publican, que impactan el matching pero **NO son bugs nuestros**. Se manejan con flags en el reporte cross-retailer y filtros en el frontend, no con limpieza retroactiva.
+
+- **Mismo EAN reutilizado para unidad vs pack.** Ejemplo Carrefour Fase 2: EANs de "Genérico" (vasos, copas) donde el retailer usa el mismo código para el producto individual y para el pack de 12. Diferencia de precio 10-15x. Detección: `diff_pct > 500%` es señal fuerte de pack mismatch.
+- **Precios extremos ocasionales del retailer.** Ejemplo Masonline: Set Tarteras Ilko cargado a $4.3M (verificado como data real del retailer, no bug de parseo). El sistema NO modifica estos precios; los flaggea en el reporte cross-retailer con `suspicion_score`.
+- **Marca "Genérico" no comparable cross-retailer.** Cada cadena usa el catchall distinto. Los productos con `brand = 'Genérico'` se scrapean y persisten normalmente, pero se excluyen del reporte cross-retailer por default.
+
+Regla de oro: **nunca modificar precios crudos scrapeados.** El comparador es fiel al retailer; los outliers se señalizan, no se "corrigen".
 
 ---
 
