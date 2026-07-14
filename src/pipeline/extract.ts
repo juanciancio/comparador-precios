@@ -1,5 +1,11 @@
 import { vtexProductSchema } from '../schemas/vtex-product.ts';
-import { normalizeEan, classifyBadEan, buildPromoDescription, type BadEanReason } from './transform.ts';
+import {
+  normalizeEan,
+  normalizeBrand,
+  classifyBadEan,
+  buildPromoDescription,
+  type BadEanReason,
+} from './transform.ts';
 
 /** Una fila por SKU (item). `extract` solo emite crudo; load decide skip/arrastre. */
 export interface ExtractedSku {
@@ -76,7 +82,7 @@ export function extractSkus(raw: unknown, host: string): ExtractResult {
       productId: product.productId,
       skuId: item.itemId,
       retailerName: item.name,
-      brand: product.brand ?? null,
+      brand: product.brand ? normalizeBrand(product.brand) || null : null,
       categoryPath: product.categories[0] ?? null,
       imageUrl: item.images[0]?.imageUrl ?? null,
       productUrl: `https://${host}/${product.linkText}/p`,

@@ -61,6 +61,20 @@ export function buildPromoDescription(
   return names.sort().join('; ');
 }
 
+/**
+ * Normalización CONSERVADORA de marca: solo whitespace y puntuación de borde.
+ * A propósito NO strippea acentos (Genérico ≠ Generico queda visible en
+ * telemetría) ni hace lowercase (iPhone ≠ Iphone). El objetivo es limpiar ruido
+ * de formato, no fusionar marcas — eso se decide con evidencia, no a ciegas.
+ */
+export function normalizeBrand(raw: string): string {
+  return raw
+    .trim()
+    .replace(/\s+/g, ' ')
+    .replace(/[.,;:]+$/, '')
+    .trim();
+}
+
 /** Normaliza campos de texto. brand vacío -> null. */
 export function normalizeSku(row: ExtractedSku): ExtractedSku {
   const brand = row.brand?.trim();

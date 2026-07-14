@@ -156,7 +156,7 @@ async function main(): Promise<void> {
         status = 'success', finished_at = NOW(),
         products_scraped = ${seenEans.size}, products_new = ${loaded.productsNew},
         errors_count = ${errors}, error_summary = ${JSON.stringify(errorSummary)}::jsonb,
-        rate_limit_hits = ${rateLimitHits}
+        rate_limit_hits = ${rateLimitHits}, bad_ean_total = ${warnings.badEan.total}
       WHERE id = ${runId}
     `;
 
@@ -185,7 +185,7 @@ async function main(): Promise<void> {
         status = 'failed', finished_at = NOW(),
         products_scraped = ${seenEans.size}, products_new = 0,
         errors_count = ${errors + 1}, error_summary = ${JSON.stringify(errorSummary)}::jsonb,
-        rate_limit_hits = ${rateLimitHits}
+        rate_limit_hits = ${rateLimitHits}, bad_ean_total = ${warnings.badEan.total}
       WHERE id = ${runId}
     `;
     process.exitCode = 1;
