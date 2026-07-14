@@ -14,7 +14,9 @@ export interface CompareFilters {
   brand?: string | undefined;
   category?: string | undefined;
   minDiffPct?: number | undefined;
-  sortBy: 'diff' | 'name';
+  cheaperAt?: 'masonline' | 'carrefour' | 'tie' | undefined;
+  // 'diff_pct_abs' es alias de 'diff' (ambos ordenan por |diff_pct|).
+  sortBy: 'diff' | 'diff_pct_abs' | 'name';
   sortDir: 'asc' | 'desc';
 }
 
@@ -52,6 +54,20 @@ export class CompareRepository {
         ? sql`AND ABS((c.price - m.price) / m.price * 100) >= ${f.minDiffPct}`
         : sql``;
 
+    // Filtro por "quién es más barato". Bucketea sobre el diff REDONDEADO (igual
+    // que cheaperOf) y reusa DIFF_TIE_TOLERANCE_PCT — sin literal inline para no
+    // driftear del helper. Se filtra en SQL (no post-fetch) para no romper la
+    // paginación ni el total.
+    const roundedDiff = sql`ROUND((c.price - m.price) / m.price * 100, 2)`;
+    const cheaperFilter =
+      f.cheaperAt === 'tie'
+        ? sql`AND ABS(${roundedDiff}) <= ${DIFF_TIE_TOLERANCE_PCT}`
+        : f.cheaperAt === 'masonline'
+          ? sql`AND ${roundedDiff} > ${DIFF_TIE_TOLERANCE_PCT}`
+          : f.cheaperAt === 'carrefour'
+            ? sql`AND ${roundedDiff} < ${-DIFF_TIE_TOLERANCE_PCT}`
+            : sql``;
+
     // FROM + WHERE compartido entre rows y count. Excluye "Genérico" (catchall no
     // comparable cross-retailer) y precios <= 0. Ver reporte cross-retailer.
     const fromWhere = sql`
@@ -66,7 +82,7 @@ export class CompareRepository {
         AND c.valid_to IS NULL AND c.is_available
       WHERE m.price > 0
         AND (p.brand IS NULL OR p.brand NOT IN ('Genérico', 'Generico'))
-        ${brandFilter} ${categoryFilter} ${minDiffFilter}
+        ${brandFilter} ${categoryFilter} ${minDiffFilter} ${cheaperFilter}
     `;
 
     const orderExpr =

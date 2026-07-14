@@ -9,7 +9,8 @@ const booleanQuery = z.preprocess(
 
 export const SearchQuerySchema = z.object({
   // Texto libre; se parte en términos (whitespace) y cada uno debe matchear.
-  q: z.string().trim().min(1, 'q es requerido'),
+  // Mínimo 2 caracteres (spec Fase 3.A): 1 char es demasiado ruidoso.
+  q: z.string().trim().min(2, 'q requiere al menos 2 caracteres'),
   limit: z.coerce.number().int().min(1).max(100).default(20),
   offset: z.coerce.number().int().min(0).default(0),
   brand: z.string().min(1).optional(),

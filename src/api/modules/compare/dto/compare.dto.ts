@@ -10,8 +10,10 @@ export const CompareQuerySchema = z.object({
   category: z.string().min(1).optional(),
   // Filtra por |diff_pct| >= min. Útil para ver solo diferencias grandes.
   min_diff_pct: z.coerce.number().min(0).optional(),
-  // 'diff' ordena por |diff_pct|; 'name' por nombre.
-  sort_by: z.enum(['diff', 'name']).default('diff'),
+  // Filtra por cuál cadena es más barata (misma tolerancia de tie que el resto).
+  cheaper_at: z.enum(['masonline', 'carrefour', 'tie']).optional(),
+  // 'diff' y su alias 'diff_pct_abs' ordenan por |diff_pct|; 'name' por nombre.
+  sort_by: z.enum(['diff', 'diff_pct_abs', 'name']).default('diff'),
   sort_dir: z.enum(['asc', 'desc']).default('desc'),
 });
 export class CompareQueryDto extends createZodDto(CompareQuerySchema) {}

@@ -18,6 +18,7 @@ export class CompareService {
       brand: query.brand,
       category: query.category,
       minDiffPct: query.min_diff_pct,
+      cheaperAt: query.cheaper_at,
       sortBy: query.sort_by,
       sortDir: query.sort_dir,
     };
