@@ -441,6 +441,15 @@ Entry point: `bin/serve-api.ts`. Scripts: `api:dev` (watch), `api:start`, `api:b
 3. **No exponer detalle de implementación en responses.** Los tipos de respuesta son un contrato para consumidores, no un mirror de tablas. Ej: `retailer_products.sku_id_retailer` es interno, no va en la respuesta.
 4. **No hacer queries N+1.** Combinar datos de varias tablas es UN join o UNA subquery, no N queries en loop. Monitor: si un request dispara 20 queries en los logs, es bug.
 
+### Testing conventions
+
+- Integration tests únicamente (no unit). El framework es Vitest + supertest.
+- Los tests corren contra la DB real de Supabase, cero mocks.
+- Un test file por módulo en `tests/api/`.
+- Tests cubren happy paths + casos sutiles conocidos (normalización EAN, TTL comunitario, exclusión Genérico, tolerancia de tie 1%, bucketing de diff).
+- El TTL comunitario del refresh se controla vía env var `REFRESH_TTL_SECONDS` para poder bajarlo en el suite de tests.
+- Ejecutar: `pnpm test:api`.
+
 ---
 
 ## Roadmap

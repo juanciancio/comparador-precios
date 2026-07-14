@@ -169,6 +169,8 @@ Si 500 usuarios abren el mismo producto en 10 segundos (por ejemplo, un influenc
 
 - **Cuando se definen buckets numéricos que aparecen en múltiples lugares (reporte batch + endpoint API + eventualmente frontend), la regla de fronteras (left/right-inclusive) debe estar explicitada como constante compartida, no reimplementada en cada lado.** Convención decidida: left-inclusive, right-exclusive (estándar numpy/pandas), sobre `ABS(diff_pct)` **ya redondeado a 2 decimales** (el mismo valor exhibido). Vive en `src/lib/diff-buckets.ts` (`DIFF_BUCKET_EDGES`, `diffBucketIndex`, `DIFF_TIE_TOLERANCE_PCT`), importado por el reporte y por `/compare/stats`. Detectado 14/07/2026 en Fase C. **Matiz del diagnóstico:** la regla de fronteras ya era left-inclusive en ambos lados; el desvío real (4 productos) venía del **redondeo** — el endpoint bucketeaba el diff crudo y el reporte el redondeado. Los 114 productos "exactamente en frontera" (5/10/25/50%) NO causaban discrepancia: al ser ambos left-inclusive, caían en el mismo bucket en las dos implementaciones. Lección secundaria: verificar la hipótesis de la causa antes de asumirla — la que parecía obvia (criterio de fronteras) no era la real (redondeo).
 
+- **La verificación manual escala hasta cierto punto**. En Fase B/C detectamos manualmente: staleness intradiaria (Motorola), redondeo de diff_pct (114 productos frontera), sinónimos en search (coca light). Después de eso, empezó a haber muchas reglas sutiles conviviendo. Los tests automatizados de Fase D son la red que evita que futuros cambios rompan reglas ya establecidas.
+
 ### Deuda técnica identificada (no bloqueante)
 
 - **`loadRun` precarga catálogo completo del retailer en cada refresh** 
