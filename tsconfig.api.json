@@ -1,9 +1,18 @@
 {
+  // TS config para la API NestJS. Extiende del base pero:
+  //  - activa decoradores + emitDecoratorMetadata (DI de Nest y nestjs-zod);
+  //  - apaga verbatimModuleSyntax (con metadata, los type-only imports NO deben
+  //    elidirse o se rompe la DI);
+  //  - MANTIENE allowImportingTsExtensions (heredado): todo el repo, incluido
+  //    src/api, importa con extensión .ts explícita bajo moduleResolution NodeNext.
+  // Re-declara include/exclude porque el base excluye src/api del typecheck.
   "extends": "./tsconfig.json",
   "compilerOptions": {
     "experimentalDecorators": true,
     "emitDecoratorMetadata": true,
     "verbatimModuleSyntax": false,
     "types": ["node", "reflect-metadata"]
-  }
+  },
+  "include": ["src/**/*.ts", "bin/**/*.ts", "tests/**/*.ts"],
+  "exclude": ["node_modules"]
 }

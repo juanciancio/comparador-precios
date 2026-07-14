@@ -21,5 +21,9 @@
     "noEmit": true,
     "types": ["node"]
   },
-  "include": ["src/**/*.ts", "bin/**/*.ts", "tests/**/*.ts"]
+  "include": ["src/**/*.ts", "bin/**/*.ts", "tests/**/*.ts"],
+  // src/api usa decoradores y su propia config (tsconfig.api.json). Se excluye
+  // del typecheck base para no forzar experimentalDecorators/verbatimModuleSyntax
+  // sobre el scraper. `pnpm api:build` cubre src/api.
+  "exclude": ["node_modules", "src/api", "bin/serve-api.ts"]
 }
