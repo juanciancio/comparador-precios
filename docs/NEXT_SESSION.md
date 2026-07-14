@@ -191,23 +191,21 @@ Si 500 usuarios abren el mismo producto en 10 segundos (por ejemplo, un influenc
 
 ## Decisiones de recent-changes (14/07/2026)
 
-- **La ventana `hours` se mide sobre `price_history.first_seen_at`, no sobre
-  `valid_from`.** `valid_from` es DATE: con él, `hours` no tendría resolución
-  horaria y `hours=24` vs `hours=48` darían resultados dependientes de la hora
-  del día en que se llama. `first_seen_at` es TIMESTAMPTZ y marca el instante en
-  que se observó el cambio, que es exactamente lo que el param quiere expresar.
-  El caso de retroactividad intradiaria (segundo cambio del mismo día, que hace
-  UPDATE in-place y deja `first_seen_at` en el insert original) sigue cayendo
-  dentro de cualquier ventana de 24hs, así que no lo afecta.
+> Las **reglas** del endpoint viven en `CLAUDE.md` → "Reglas de recent-changes"
+> (fuente de verdad). Acá queda solo la evidencia medida que las respalda.
 
-- **"Cambió de precio" ≠ "tiene fila con valid_from reciente".** Un primer
-  avistaje también estrena fila. El endpoint exige fila previa con
-  `price > 0` y `cur.price <> prev.price`, lo que de paso descarta filas nuevas
-  por promo/disponibilidad con el mismo precio y las discontinuaciones (que
-  cierran `valid_to` sin abrir fila nueva). **Con la data actual el filtro es
-  todo**: el catálogo nació el 13/07, así que las 38.607 filas vigentes tienen
-  `first_seen_at` dentro de las últimas 48hs — la ventana sola no filtra nada y
-  los 5.313 EANs con cambio real salen de exigir el precio anterior.
+- **Ventana sobre `first_seen_at`, no `valid_from`** (regla en `CLAUDE.md`).
+  Matiz que no está allá: el caso de retroactividad intradiaria (segundo cambio
+  del mismo día, que hace UPDATE in-place y deja `first_seen_at` en el insert
+  original) sigue cayendo dentro de cualquier ventana de 24hs, así que la regla
+  no lo pierde.
+
+- **Los números detrás de "la ventana no filtra nada" (14/07/2026):** de las
+  38.607 filas vigentes, las 38.607 tienen `first_seen_at` dentro de las últimas
+  48hs — el catálogo nació el 13/07. Los 5.313 EANs con cambio real salen enteros
+  de exigir precio anterior distinto. En el batch del 14/07: 5.424 cambios de
+  precio, 187 filas nuevas que repiten precio (promo/disponibilidad) y 14 primeros
+  avistajes, los dos últimos grupos correctamente excluidos.
 
 - **Sin migración de índice.** La query default corre en **131ms** (target: 300ms).
   El plan usa `idx_ph_ean_valid_from` para el LATERAL al precio anterior,
@@ -225,9 +223,8 @@ Si 500 usuarios abren el mismo producto en 10 segundos (por ejemplo, un influenc
   lookups en vez de 5.611: medido, **1785ms vs 131ms**. Si alguien "simplifica"
   la query hacia esa forma, es una regresión de 13x.
 
-- **El top-N default queda dominado por productos de una sola cadena**, porque
-  ordena por magnitud de cambio y no por diff cross-retailer (los cambios más
-  bruscos hoy son de electro/deportes que están en una sola cadena). Para la home
-  del comparador puede convenir `?min_diff_pct=N`, que exige ambas cadenas.
-  **Pendiente de decisión de producto de Juan**: si la home siempre quiere
-  productos comparables, se puede fijar `only_matched` por default en el endpoint.
+- **Que el top-N quede dominado por productos de una sola cadena es esperado y
+  correcto — decisión tomada, no pendiente.** El endpoint ordena por magnitud de
+  cambio y no filtra por comparabilidad: qué mostrar es responsabilidad del
+  consumidor. El frontend pasa `min_diff_pct=N` (que ya exige ambas cadenas)
+  cuando la home quiera solo comparables. No se le pone `only_matched` por default.

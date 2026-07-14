@@ -446,9 +446,12 @@ siempre 0 (es un top-N, no una página).
   también estrena fila, y una fila nueva por promo/disponibilidad puede repetir
   precio. Se exige `prev.price > 0` y `cur.price <> prev.price`. Esto además
   descarta discontinuaciones (cierran `valid_to` sin abrir fila nueva).
-- **La ventana `hours` se mide sobre `first_seen_at`, no sobre `valid_from`.**
-  `valid_from` es DATE y no tiene resolución horaria. Ver `docs/NEXT_SESSION.md`
-  → "Decisiones de recent-changes".
+- **Ventana temporal medida sobre `first_seen_at`, no `valid_from`.** `valid_from`
+  es DATE sin resolución horaria; `first_seen_at` es TIMESTAMPTZ y captura cuándo
+  la fila entró a nuestra observación. Para el caso de uso "cambios recientes
+  desde nuestra perspectiva observacional" es la métrica correcta. Si en el futuro
+  corremos múltiples scrapes por día y necesitamos distinguir "el precio cambió en
+  el mundo real" vs "cuándo lo detectamos", revisitar.
 - **Techos de outliers, configurables por env:** `RECENT_CHANGES_MAX_PRICE`
   (default 500000) descarta el producto si el precio vigente de **cualquier**
   cadena lo supera; `RECENT_CHANGES_MAX_DIFF_PCT` (default 200) descarta por
@@ -459,6 +462,16 @@ siempre 0 (es un top-N, no una página).
 - **No invertir el driver de la query.** Ver el comentario en
   `products.repository.ts:recentChanges`: arrancar desde las filas vigentes en vez
   de las cerradas da el mismo resultado 13x más lento (1785ms vs 131ms).
+- **El orden (magnitud de cambio DESC) no filtra por comparabilidad**, así que el
+  top-N queda dominado por productos de una sola cadena. Es correcto: qué mostrar
+  es responsabilidad del consumidor, no del endpoint. El frontend pasa
+  `min_diff_pct=N` (que ya exige ambas cadenas) cuando quiere solo comparables.
+
+**Nota operativa:** con la data actual del proyecto (batch diario, catálogo
+iniciado 13/07/2026), la ventana temporal no ejerce filtro efectivo — todas las
+filas caen dentro. El filtro efectivo viene de exigir una fila previa con precio
+distinto. Cuando el proyecto acumule más historia, la ventana comenzará a filtrar
+activamente.
 
 ### Anti-patterns de la API (además de los generales)
 

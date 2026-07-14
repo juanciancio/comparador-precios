@@ -149,10 +149,11 @@ export class ProductsRepository {
    * Productos cuyo precio vigente empezó a regir dentro de la ventana, ordenados
    * por magnitud del cambio contra el precio inmediatamente anterior.
    *
-   * La ventana se mide sobre `first_seen_at` (timestamptz = instante en que se
-   * observó el cambio) y NO sobre `valid_from`, que es DATE: con `valid_from` el
-   * parámetro `hours` no tendría resolución horaria y `hours=24` vs `hours=48`
-   * dependerían de la hora del día. Ver docs/NEXT_SESSION.md.
+   * La ventana se mide sobre `first_seen_at` (timestamptz = instante en que la
+   * fila entró a nuestra observación) y NO sobre `valid_from`, que es DATE: con
+   * `valid_from` el parámetro `hours` no tendría resolución horaria y `hours=24`
+   * vs `hours=48` dependerían de la hora del día. Ver CLAUDE.md → "Reglas de
+   * recent-changes".
    *
    * El driver es `prev` (filas ya cerradas, ~12% de la tabla) en vez de las filas
    * vigentes: exigir un precio anterior es justamente lo que separa "cambió de
