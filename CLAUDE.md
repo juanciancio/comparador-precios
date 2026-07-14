@@ -430,7 +430,8 @@ Entry point: `bin/serve-api.ts`. Scripts: `api:dev` (watch), `api:start`, `api:b
 - **Query params:** snake_case (`only_matched`, `sort_by`, `min_diff_pct`).
 - **Response bodies:** camelCase en las keys de JS/JSON... **excepto** donde el contrato ya fijó snake_case (ej. `uptime_seconds` del health, `masonline_price`/`carrefour_price`/`diff_pct` del compare). Regla práctica: seguir el shape exacto acordado por endpoint en el prompt de la fase; no "normalizar" a mano.
 - **Timezone:** fechas de presentación en `America/Argentina/Buenos_Aires`, no UTC crudo.
-- **API read-only en MVP.** Cero endpoints de escritura. Auth y writes (POST/PUT/DELETE) llegan con **Fase 4** (favoritos/alertas).
+- **API sin writes de usuario en esta fase.** Cero endpoints CRUD sobre estado de usuario (favoritos, alertas, cuentas). Auth y writes de usuario vienen en **Fase 4**.
+- **Endpoints que disparan el pipeline de scraping (refresh on-demand) sí son válidos y no requieren auth.** Son operaciones sobre datos del retailer, no sobre estado del usuario. Ejemplo: `POST /products/:ean/refresh` reusa `extract` + `transform` + `load` sobre un producto puntual, con TTL comunitario para gate el costo. Ver "Arquitectura de refresh de precios" en `docs/NEXT_SESSION.md`.
 - **Puerto default de dev = `3100`, no `3000`** (el 3000 colisiona con frameworks frontend y, en la máquina de Juan, con un túnel SSH).
 
 ### Anti-patterns de la API (además de los generales)
