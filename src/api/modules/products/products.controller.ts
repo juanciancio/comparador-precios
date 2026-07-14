@@ -1,4 +1,14 @@
-import { Controller, Get, HttpCode, HttpStatus, Param, Post, Query } from '@nestjs/common';
+import { CacheInterceptor, CacheTTL } from '@nestjs/cache-manager';
+import {
+  Controller,
+  Get,
+  HttpCode,
+  HttpStatus,
+  Param,
+  Post,
+  Query,
+  UseInterceptors,
+} from '@nestjs/common';
 import { ApiOkResponse, ApiOperation, ApiParam, ApiTags } from '@nestjs/swagger';
 import { ApiBadRequest, ApiNotFound, ApiServerError } from '../../common/openapi/error-responses.ts';
 import {
@@ -7,11 +17,17 @@ import {
   PriceHistoryQueryDto,
   PriceHistoryResponseDto,
   ProductDto,
+  RecentChangesQueryDto,
   RefreshResponseDto,
 } from './dto/products.dto.ts';
 import { ProductsService } from './products.service.ts';
 
 const EAN_EXAMPLE = '7790894902018';
+
+// El catálogo cambia una vez al día post-scrape. El interceptor va a nivel de
+// método, no de controller: /products/:ean no debe cachearse (el refresh
+// on-demand tiene que verse reflejado al toque).
+const RECENT_CHANGES_CACHE_TTL_MS = 5 * 60 * 1000;
 
 const PRODUCT_EXAMPLE = {
   ean: EAN_EXAMPLE,
@@ -70,6 +86,47 @@ export class ProductsController {
   @ApiServerError()
   list(@Query() query: ListProductsQueryDto): Promise<ListProductsResponseDto> {
     return this.products.list(query);
+  }
+
+  // Declarado ANTES de @Get(':ean'): Nest matchea por orden y el param capturaría
+  // el literal 'recent-changes'.
+  @Get('recent-changes')
+  @UseInterceptors(CacheInterceptor)
+  @CacheTTL(RECENT_CHANGES_CACHE_TTL_MS)
+  @ApiOperation({
+    summary: 'Productos con cambios de precio recientes (home de la PWA)',
+    description:
+      'Productos con cambios de precio en las últimas N horas, filtrados para ' +
+      'consumir desde la home de la PWA. Excluye outliers de data quality via ' +
+      'techos configurables. Devuelve el MISMO shape que `GET /products` ' +
+      '(`data` + `pagination`), así que el cliente tipado se reusa sin mapeo extra; ' +
+      '`pagination.offset` es siempre 0 porque es un top-N, no una página, y ' +
+      '`pagination.total` es la cantidad total de productos que cambiaron dentro ' +
+      'de la ventana.\n\n' +
+      'Un producto entra si su precio vigente en alguna cadena empezó a regir ' +
+      'dentro de la ventana Y difiere del precio inmediatamente anterior: un ' +
+      'primer avistaje no es un cambio, y una fila nueva por promo/disponibilidad ' +
+      'con el mismo precio tampoco. Se ordena por magnitud del cambio ' +
+      '(`|actual - anterior| / anterior`, la mayor entre cadenas) DESC.\n\n' +
+      'Filtros fijos: se excluye la marca "Genérico" (catchall no comparable ' +
+      'cross-retailer), los productos no disponibles, los que superan ' +
+      '`RECENT_CHANGES_MAX_PRICE` (default $500.000) en cualquier cadena, y los ' +
+      'que superan `RECENT_CHANGES_MAX_DIFF_PCT` (default 200%) de diferencia ' +
+      'cross-retailer. Cacheado en memoria 5 min; la cache-key incluye los query ' +
+      'params (header `x-cache`).',
+  })
+  @ApiOkResponse({
+    type: ListProductsResponseDto,
+    description: 'Top-N de productos con cambios recientes + total de la ventana.',
+    example: {
+      data: [PRODUCT_EXAMPLE],
+      pagination: { limit: 8, offset: 0, total: 4058 },
+    },
+  })
+  @ApiBadRequest()
+  @ApiServerError()
+  recentChanges(@Query() query: RecentChangesQueryDto): Promise<ListProductsResponseDto> {
+    return this.products.recentChanges(query);
   }
 
   @Get(':ean')

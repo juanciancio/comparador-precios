@@ -34,6 +34,27 @@ export const ListProductsQuerySchema = z.object({
 });
 export class ListProductsQueryDto extends createZodDto(ListProductsQuerySchema) {}
 
+export const RecentChangesQuerySchema = z.object({
+  limit: z.coerce.number().int().min(1).max(30).default(8).describe('Cantidad de productos (1–30). Ej: 8'),
+  hours: z.coerce
+    .number()
+    .int()
+    .min(1)
+    .max(168)
+    .default(48)
+    .describe('Ventana temporal hacia atrás, en horas (1–168). Ej: 24'),
+  min_diff_pct: z.coerce
+    .number()
+    .min(0)
+    .optional()
+    .describe(
+      'Diferencia cross-retailer mínima (en %, absoluta) para incluir el producto. ' +
+        'Al usarlo, los productos presentes en una sola cadena quedan excluidos ' +
+        '(no tienen diferencia que medir). Ej: 10',
+    ),
+});
+export class RecentChangesQueryDto extends createZodDto(RecentChangesQuerySchema) {}
+
 export const PriceHistoryQuerySchema = z.object({
   retailer: z
     .string()

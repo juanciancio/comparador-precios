@@ -21,6 +21,16 @@ export interface ListFilters {
   terms?: string[] | undefined;
 }
 
+export interface RecentChangesFilters {
+  limit: number;
+  hours: number;
+  minDiffPct?: number | undefined;
+  /** Techo de precio vigente en cualquier cadena. Env RECENT_CHANGES_MAX_PRICE. */
+  maxPrice: number;
+  /** Techo de |diff_pct| cross-retailer. Env RECENT_CHANGES_MAX_DIFF_PCT. */
+  maxDiffPct: number;
+}
+
 export interface PriceHistoryFilters {
   retailer?: string | undefined;
   from?: string | undefined;
@@ -133,6 +143,93 @@ export class ProductsRepository {
     `;
 
     return { data: rows.map(toProduct), total: totalRows[0]!.total };
+  }
+
+  /**
+   * Productos cuyo precio vigente empezó a regir dentro de la ventana, ordenados
+   * por magnitud del cambio contra el precio inmediatamente anterior.
+   *
+   * La ventana se mide sobre `first_seen_at` (timestamptz = instante en que se
+   * observó el cambio) y NO sobre `valid_from`, que es DATE: con `valid_from` el
+   * parámetro `hours` no tendría resolución horaria y `hours=24` vs `hours=48`
+   * dependerían de la hora del día. Ver docs/NEXT_SESSION.md.
+   *
+   * El driver es `prev` (filas ya cerradas, ~12% de la tabla) en vez de las filas
+   * vigentes: exigir un precio anterior es justamente lo que separa "cambió de
+   * precio" de "se vio por primera vez", y arrancar por el lado chico evita un
+   * LATERAL por cada fila vigente del catálogo (medido: 1785ms -> 135ms, mismo
+   * result set). El LATERAL toma el sucesor inmediato de `prev`; pedirle
+   * `valid_to IS NULL` garantiza que `prev` es el predecesor directo del vigente.
+   * Un `prev` con el mismo precio (cambio de promo/disponibilidad, o cierre por
+   * discontinuación) no es cambio de precio y queda afuera por `cur.price <> prev.price`.
+   */
+  async recentChanges(f: RecentChangesFilters): Promise<{ data: Product[]; total: number }> {
+    const sql = this.sql;
+    const masonlineId = sql`(SELECT id FROM retailers WHERE slug = 'masonline')`;
+    const carrefourId = sql`(SELECT id FROM retailers WHERE slug = 'carrefour')`;
+
+    // Pedir una diferencia mínima cross-retailer implica exigir ambas cadenas.
+    const minDiffFilter =
+      f.minDiffPct !== undefined
+        ? sql`AND px.m_price IS NOT NULL AND px.c_price IS NOT NULL AND px.m_price > 0
+              AND ABS((px.c_price - px.m_price) / px.m_price * 100) >= ${f.minDiffPct}`
+        : sql``;
+
+    const rows = await sql<(RawProductRow & { total: number })[]>`
+      WITH changed AS MATERIALIZED (
+        SELECT prev.ean, MAX(ABS(cur.price - prev.price) / prev.price) AS change_magnitude
+        FROM price_history prev
+        JOIN LATERAL (
+          SELECT nxt.price, nxt.valid_to, nxt.is_available, nxt.first_seen_at
+          FROM price_history nxt
+          WHERE nxt.retailer_id = prev.retailer_id AND nxt.ean = prev.ean
+            AND nxt.valid_from > prev.valid_from
+          ORDER BY nxt.valid_from ASC
+          LIMIT 1
+        ) cur ON TRUE
+        WHERE prev.valid_to IS NOT NULL
+          AND prev.price > 0
+          AND cur.valid_to IS NULL
+          AND cur.is_available
+          AND cur.first_seen_at >= NOW() - make_interval(hours => ${f.hours})
+          AND cur.price <> prev.price
+        GROUP BY prev.ean
+      ),
+      ranked AS (
+        SELECT ch.ean, ch.change_magnitude, COUNT(*) OVER ()::int AS total
+        FROM changed ch
+        JOIN products p ON p.ean = ch.ean
+        JOIN LATERAL (
+          SELECT
+            MAX(ph.price) AS max_price,
+            MAX(ph.price) FILTER (WHERE ph.retailer_id = ${masonlineId}) AS m_price,
+            MAX(ph.price) FILTER (WHERE ph.retailer_id = ${carrefourId}) AS c_price
+          FROM price_history ph
+          WHERE ph.ean = p.ean AND ph.valid_to IS NULL AND ph.is_available
+        ) px ON TRUE
+        WHERE (p.brand IS NULL OR p.brand NOT IN ('Genérico', 'Generico'))
+          AND px.max_price <= ${f.maxPrice}
+          AND (
+            px.m_price IS NULL OR px.c_price IS NULL OR px.m_price <= 0
+            OR ABS((px.c_price - px.m_price) / px.m_price * 100) <= ${f.maxDiffPct}
+          )
+          ${minDiffFilter}
+        ORDER BY ch.change_magnitude DESC, ch.ean ASC
+        LIMIT ${f.limit}
+      )
+      SELECT
+        p.ean, p.name_canonical, p.brand, p.category_path, p.image_url,
+        p.first_seen_at, p.last_seen_at,
+        rk.total,
+        ${this.retailerOffersSubquery()} AS retailers
+      FROM ranked rk
+      JOIN products p ON p.ean = rk.ean
+      ORDER BY rk.change_magnitude DESC, rk.ean ASC
+    `;
+
+    // COUNT(*) OVER () se evalúa antes del LIMIT: total = filas que pasaron todos
+    // los filtros. Sin filas no hay total que leer, y 0 es la respuesta correcta.
+    return { data: rows.map(toProduct), total: rows[0]?.total ?? 0 };
   }
 
   async getProduct(ean: string): Promise<Product | null> {

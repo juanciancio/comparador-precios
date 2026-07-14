@@ -21,6 +21,12 @@ const EnvSchema = z.object({
   // TTL comunitario del refresh on-demand. Expuesto como env para poder bajarlo
   // (p. ej. 2s) en el suite de tests de integración.
   REFRESH_TTL_SECONDS: z.coerce.number().int().min(0).default(60),
+  // Techos de outliers de /products/recent-changes. Existen porque hay evidencia
+  // empírica de data quality que se colaría en la home como si fuera oferta:
+  // Set Tarteras Ilko a $4.3M, Bolso Iael con 1040% de diff, Taza Doble G con
+  // 300%. Ver CLAUDE.md → "Data quality signals conocidas".
+  RECENT_CHANGES_MAX_PRICE: z.coerce.number().positive().default(500000),
+  RECENT_CHANGES_MAX_DIFF_PCT: z.coerce.number().positive().default(200),
 });
 
 export type ApiEnv = z.infer<typeof EnvSchema>;

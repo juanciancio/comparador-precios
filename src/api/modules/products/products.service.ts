@@ -16,6 +16,7 @@ import type { Product, PriceHistoryEntry } from './dto/products.dto.ts';
 import type {
   ListProductsQueryDto,
   PriceHistoryQueryDto,
+  RecentChangesQueryDto,
 } from './dto/products.dto.ts';
 
 /** Ventana de cache comunitario del refresh on-demand. Protege a VTEX de ráfagas.
@@ -52,6 +53,19 @@ export class ProductsService {
       data,
       pagination: { limit: query.limit, offset: query.offset, total },
     };
+  }
+
+  async recentChanges(query: RecentChangesQueryDto): Promise<ListProductsResult> {
+    const { data, total } = await this.repo.recentChanges({
+      limit: query.limit,
+      hours: query.hours,
+      minDiffPct: query.min_diff_pct,
+      maxPrice: apiEnv.RECENT_CHANGES_MAX_PRICE,
+      maxDiffPct: apiEnv.RECENT_CHANGES_MAX_DIFF_PCT,
+    });
+    // Mismo envelope que GET /products: el frontend reusa el cliente tipado sin
+    // mapeo extra. No hay paginación real acá (es un top-N), así que offset = 0.
+    return { data, pagination: { limit: query.limit, offset: 0, total } };
   }
 
   async getOne(rawEan: string): Promise<Product> {
