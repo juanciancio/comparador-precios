@@ -1,0 +1,52 @@
+name: Daily scrape
+
+on:
+  schedule:
+    # 04:00 ART = 07:00 UTC. Horario tranquilo para VTEX.
+    - cron: '0 7 * * *'
+  workflow_dispatch: {} # permite trigger manual desde la UI
+
+concurrency:
+  group: daily-scrape
+  cancel-in-progress: false # nunca cancelar una corrida en curso
+
+# Necesario para que el paso "Commit report" pueda hacer git push con el
+# GITHUB_TOKEN (el default de Actions es read-only sobre contents).
+permissions:
+  contents: write
+
+jobs:
+  scrape:
+    runs-on: ubuntu-latest
+    timeout-minutes: 240 # 4hs de margen (Masonline 45min + Carrefour 110min + buffer)
+    env:
+      DATABASE_URL: ${{ secrets.DATABASE_URL }}
+      SUPABASE_URL: ${{ secrets.SUPABASE_URL }}
+      SUPABASE_SERVICE_KEY: ${{ secrets.SUPABASE_SERVICE_KEY }}
+      CONTACT_EMAIL: ${{ secrets.CONTACT_EMAIL }}
+      LOG_LEVEL: info
+    steps:
+      - uses: actions/checkout@v4
+      - uses: pnpm/action-setup@v3
+        with:
+          version: 10
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '20'
+          cache: 'pnpm'
+      - run: pnpm install --frozen-lockfile
+      - name: Apply pending DB migrations
+        run: pnpm db:migrate
+      - name: Scrape Masonline
+        run: pnpm scrape --retailer=masonline
+      - name: Scrape Carrefour
+        run: pnpm scrape --retailer=carrefour
+      - name: Cross-retailer report
+        run: pnpm report --cross-retailer > LATEST_RUN.md
+      - name: Commit report
+        run: |
+          git config user.name "github-actions[bot]"
+          git config user.email "github-actions[bot]@users.noreply.github.com"
+          git add LATEST_RUN.md
+          git diff --staged --quiet || git commit -m "chore(runs): update latest run report [skip ci]"
+          git push

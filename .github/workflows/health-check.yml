@@ -1,0 +1,27 @@
+name: Health check
+
+on:
+  schedule:
+    # Lunes 12:00 UTC (09:00 ART). Semanal, canario de degradación.
+    - cron: '0 12 * * 1'
+  workflow_dispatch: {}
+
+jobs:
+  health:
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    env:
+      DATABASE_URL: ${{ secrets.DATABASE_URL }}
+      LOG_LEVEL: info
+    steps:
+      - uses: actions/checkout@v4
+      - uses: pnpm/action-setup@v3
+        with:
+          version: 10
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '20'
+          cache: 'pnpm'
+      - run: pnpm install --frozen-lockfile
+      - name: Run health checks
+        run: pnpm tsx bin/health-check.ts
