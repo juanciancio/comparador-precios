@@ -166,3 +166,13 @@ Si 500 usuarios abren el mismo producto en 10 segundos (por ejemplo, un influenc
 - **La verificación manual visual detectó un no-bug que ningún health check hubiera detectado.** El sistema tenía data internamente consistente pero desactualizada respecto a la realidad. Los health checks actuales miden invariantes de calidad (`price > 0`, EANs únicos, `rate_limit_hits` bajos), no frescura contra realidad externa. Es un límite esperado del monitoreo automatizado, no un fallo — solo hay que tenerlo en mente al diseñar frontend (mostrar timestamp de última actualización siempre).
 
 - **El diseño del suspicion_score debe basarse en reglas concretas derivadas de casos verificados manualmente, no en abstracciones.** Caso Motorola G67 (EAN 7790894902018): diferencia de 53-83% (dependiendo del momento) entre Masonline y Carrefour, mismo producto físico, sin promos activas en ninguna cadena. Diagnóstico: diferencia real de mercado, no anomalía. **Score BAJO** — no requiere warning especial en el frontend, es competencia genuina de precios.
+
+### Deuda técnica identificada (no bloqueante)
+
+- **`loadRun` precarga catálogo completo del retailer en cada refresh** 
+  (~12-26k filas), aunque el refresh toque un solo producto. 
+  O(catálogo) por llamada. Con TTL comunitario 60s el volumen está 
+  acotado; no impacta MVP. Cuando la mediana de duración del endpoint 
+  supere 500ms o el CPU de Supabase pase 60%, refactorizar a un path 
+  `loadRunForSingleEan(ean)` que hace SELECT puntual en vez de precarga.
+  Detectado en Fase B (14/07/2026).
