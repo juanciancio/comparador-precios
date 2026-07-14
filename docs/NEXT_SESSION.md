@@ -39,21 +39,25 @@ y convenciones (leer antes de codear Fase B).
 
 ## 3. Próximos pasos en orden
 
-### Inmediato — Fase B (Products module)
+**Inmediato (próxima sesión — Fase B):**
 
-1. **`ProductsController` con 3 endpoints:**
-   - `GET /products` — paginado + filtros: `limit`, `offset`, `brand`,
-     `category`, `only_matched`, `sort_by`, `sort_dir`.
-   - `GET /products/:ean` — detalle individual (404 si no existe).
-   - `GET /products/:ean/price-history` — histórico, filtrable por `retailer` y
-     rango `from`/`to`.
-2. **`EXPLAIN ANALYZE` de la query de `only_matched=true`** con filtros
-   combinados. Objetivo: **<200ms** contra Supabase. Si el planner no usa
-   índices, agregar migración `006_indices_for_api.sql` con los faltantes
-   (decisión abierta #8 en `CLAUDE.md`).
-3. **Reportar al terminar Fase B:** outputs de `curl` de los 3 endpoints, un
-   ejemplo con filtros combinados, `EXPLAIN ANALYZE` de la query más pesada, e
-   índices nuevos si hubo.
+Implementar `ProductsController` con los 4 endpoints:
+
+1. `GET /products` con paginación y filtros (`limit`, `offset`, `brand`, `category`, `only_matched`, `sort_by`, `sort_dir`).
+2. `GET /products/:ean` con detalle individual.
+3. `GET /products/:ean/price-history` con histórico opcional filtrable por retailer y rango de fechas.
+4. `POST /products/:ean/refresh` — refresh on-demand con TTL comunitario 60s.
+
+Detalle del endpoint 4 (`POST /products/:ean/refresh`):
+- Chequea si `retailer_products.last_seen_at` es más antiguo que 60 segundos.
+- Si sí: fetch en vivo contra cada retailer donde existe el producto, corre `extract` + `transform` + `load` reusando el pipeline existente.
+- Si no: devuelve la data actual sin hacer fetch (cache comunitario — protege contra ráfagas y rate limiting de VTEX).
+- Response incluye el producto actualizado + `{ was_refreshed: boolean, updated_at: timestamp }`.
+- Loggear si hubo cambio de precio real (para tracking futuro cuando se implemente SSE broadcast).
+
+Verificar con `EXPLAIN ANALYZE` la query de `only_matched=true` con filtros combinados. Objetivo: <200ms contra Supabase. Si el planner no usa índices, agregar migración `006_indices_for_api.sql` con los índices faltantes.
+
+Reportar al terminar: outputs de `curl` de los 4 endpoints, un ejemplo con filtros combinados, `EXPLAIN ANALYZE` de la query más pesada, e índices nuevos si hubo. Para el endpoint refresh, mostrar: (a) resultado de un primer refresh (was_refreshed: true si el producto es viejo), (b) resultado del mismo refresh 5 segundos después (was_refreshed: false — cache comunitario funcionando).
 
 ### Siguientes fases dentro de 3.A
 
@@ -69,6 +73,36 @@ y convenciones (leer antes de codear Fase B).
 - Sesión propia para **deployar la API** (target por decidir: Fly.io / Railway /
   Render — decisión abierta #7 en `CLAUDE.md`).
 - **Fase 3.B:** PWA con Next.js en **repo separado**, consumiendo el OpenAPI.
+
+---
+
+## Arquitectura de refresh de precios (roadmap decidido)
+
+Los precios en retailers argentinos se mueven intradiariamente (verificado empíricamente con Motorola G67 el 14/07/2026: cambió de $499.999 a $599.999 entre el scrape de 6AM y las 10AM). El scrape diario captura snapshots; la data envejece varias horas antes del próximo scrape. No es bug, es frecuencia de sampleo.
+
+**Estrategia multi-capa:**
+
+- **Scrape diario:** base del catálogo, historia, listados amplios. Ya implementado y en autopilot.
+- **Refresh on-demand con TTL comunitario 60s:** fichas detalle, comparaciones puntuales. Endpoint `POST /products/:ean/refresh`. A implementar en Fase B.
+- **SSE broadcast a rooms por categoría (futuro):** cuando un refresh cambia un precio, todos los usuarios viendo esa categoría reciben el update en vivo. Efecto de red genuino y moat competitivo — cuantos más usuarios activos, más fresca la data para todos.
+- **Timestamp visible siempre en frontend:** "actualizado hace X". Gestiona expectativas del usuario sobre frescura.
+
+**Implementación gradual:**
+
+- **Fase 3.A (ahora, en Fase B):** endpoint refresh simple con TTL comunitario 60s.
+- **Fase 3.B (PWA):** consumo del endpoint desde ficha detalle + timestamp visible en UI.
+- **Fase 3.C (post-lanzamiento, cuando haya usuarios reales):** SSE broadcast con rooms por categoría top-level. Sin usuarios reales no aporta valor — es sobreingeniería.
+- **Fase 4 (app nativa):** push notifications sobre SSE events para productos "seguidos".
+
+**Notas de diseño para cuando llegue Fase 3.C:**
+
+- Preferir SSE sobre WebSockets bidireccionales. Es la mitad de complejo, funciona sobre HTTP normal (más fácil de proxear detrás de Cloudflare), y alcanza para el caso de uso (server → cliente únicamente; el trigger de refresh sigue siendo POST HTTP normal).
+- Rooms por categoría top-level (Almacén, Electro, etc.). El frontend se suscribe automáticamente a la categoría en que está el usuario; cambia de room al navegar. Simple para el frontend, moderado en carga.
+- Cada evento incluye `updated_at` timestamp para que el frontend descarte eventos out-of-order.
+
+**Cómo el TTL comunitario resuelve escenarios adversariales:**
+
+Si 500 usuarios abren el mismo producto en 10 segundos (por ejemplo, un influencer lo mencionó), sin coordinación dispararían 500 requests contra VTEX. VTEX rate-limitea al tercero. Con TTL comunitario 60s, solo el primero dispara fetch real; los otros 499 obtienen esa data recién refrescada. Y si el precio cambió, TODOS los 500 se enteran instantáneamente vía SSE (cuando se implemente). El escenario adversarial se convierte en el escenario ideal.
 
 ---
 
@@ -108,3 +142,27 @@ y convenciones (leer antes de codear Fase B).
 - Commits directo a `main` (proyecto de un solo dev, sin ceremonia de branches).
 - Timezone `America/Argentina/Buenos_Aires` para presentation de fechas.
 - Imports con `.ts` explícita en todo el repo, incluido `src/api` (ver `CLAUDE.md`).
+
+---
+
+## 7. Aprendizajes de data / debugging (tener presente)
+
+- **Los precios en retailers argentinos se mueven intradiariamente.** Nuestro
+  scrape diario captura snapshots; la data puede envejecer varias horas antes del
+  próximo scrape. No es bug, es frecuencia de sampleo. **Diseñar el frontend con
+  "última actualización: hace X" visible.**
+- **Cuando algo no cierra en verificación manual, no saltar a hipótesis complejas
+  antes de comparar fetch actual con DB.** La explicación más simple (el mundo real
+  cambió) suele ser la correcta.
+
+---
+
+## Aprendizajes operativos (14/07/2026)
+
+- **Los precios en retailers argentinos se mueven varias veces al día.** El scrape diario captura snapshots fieles al momento de la corrida, pero la data puede envejecer horas antes del próximo scrape. Cualquier comparación entre "DB nuestra" y "web en vivo" puede diferir sin que sea bug del sistema.
+
+- **Cuando algo no cierra en verificación manual, la explicación más simple (el mundo real cambió) suele ser la correcta.** No saltar a hipótesis complejas (bug de mapeo VTEX, diferencia regional por IP, error de load) antes de comparar el fetch actual con la DB. El test más simple: fetchear el producto en vivo desde el mismo cliente que usa el scraper y comparar contra lo que hay guardado. Si difieren, es staleness normal.
+
+- **La verificación manual visual detectó un no-bug que ningún health check hubiera detectado.** El sistema tenía data internamente consistente pero desactualizada respecto a la realidad. Los health checks actuales miden invariantes de calidad (`price > 0`, EANs únicos, `rate_limit_hits` bajos), no frescura contra realidad externa. Es un límite esperado del monitoreo automatizado, no un fallo — solo hay que tenerlo en mente al diseñar frontend (mostrar timestamp de última actualización siempre).
+
+- **El diseño del suspicion_score debe basarse en reglas concretas derivadas de casos verificados manualmente, no en abstracciones.** Caso Motorola G67 (EAN 7790894902018): diferencia de 53-83% (dependiendo del momento) entre Masonline y Carrefour, mismo producto físico, sin promos activas en ninguna cadena. Diagnóstico: diferencia real de mercado, no anomalía. **Score BAJO** — no requiere warning especial en el frontend, es competencia genuina de precios.

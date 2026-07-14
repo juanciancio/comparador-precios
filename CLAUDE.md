@@ -33,6 +33,8 @@ Estos puntos ya se verificaron manualmente contra los sitios reales. Son la base
 
 12. **Idempotencia real ≠ "DB count no cambia".** El criterio "misma DB count entre corridas" solo se cumple con snapshot congelado de la API. En corridas contra API en vivo con drift real (precios movidos, productos que reingresan de cola muerta), el criterio correcto es: **input idéntico a nivel producto → cero escrituras para ese producto**. Verificable por bucket: productos en `price.unchanged` no disparan writes. Deltas en `price.new`/`price.changed` deben reconciliar con drift observable, no ser bugs.
 
+13. **Los precios en retailers VTEX argentinos pueden cambiar varias veces al día.** El scrape diario captura snapshots correctos al momento de la corrida; el precio real en el sitio puede diferir horas después. Verificado 14/07/2026 con Motorola G67 (EAN `7790894902018`): scrape de las 6AM leyó `Price = 499999`, verificación en la web a las 10AM mostraba `$599.999`, y el payload de VTEX confirmó `Price = 599999` (`ListPrice`, `PriceWithoutDiscount`, `FullSellingPrice` todos coincidían). No es bug del pipeline — es frecuencia de sampleo. **Implicancia arquitectónica**: (a) el frontend debe mostrar timestamp "actualizado hace X" en toda vista de precio; (b) se implementa refresh on-demand con TTL comunitario 60s en Fase B (`POST /products/:ean/refresh`); (c) SSE broadcast comunitario planificado para post-lanzamiento (Fase 3.C). Ver detalles en `docs/NEXT_SESSION.md` → "Arquitectura de refresh de precios".
+
 ---
 
 ## Endpoints VTEX que usamos (los únicos)
