@@ -10,7 +10,9 @@ const EnvSchema = z.object({
   DATABASE_URL: z.string().min(1, 'DATABASE_URL is required'),
   LOG_LEVEL: z.string().default('info'),
   NODE_ENV: z.string().default('development'),
-  API_PORT: z.coerce.number().int().positive().max(65535).default(3000),
+  // Default 3100: 3000 colisiona con frameworks frontend y, en la máquina de
+  // Juan, con un túnel SSH. Ver CLAUDE.md → "API HTTP (NestJS)".
+  API_PORT: z.coerce.number().int().positive().max(65535).default(3100),
   // Comma-separated allowlist, or '*' for any origin (dev default).
   CORS_ORIGINS: z.string().default('*'),
   // Throttler window in seconds and max requests per window per IP.
