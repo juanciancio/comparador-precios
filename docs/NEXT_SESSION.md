@@ -11,10 +11,10 @@
   Actions (`daily-scrape.yml`, 04:00 ART) + health check semanal. Se alimenta solo.
 - **Fase 3.A COMPLETA (14/07/2026) — API HTTP (NestJS):** montada en el mismo repo
   del scraper. **Lista para deploy.**
-  - **10 endpoints** funcionando (Health, Products ×4, Search, Compare ×2,
+  - **11 endpoints** funcionando (Health, Products ×5, Search, Compare ×2,
     Categories, Brands).
-  - **39 tests de integración** (Vitest + supertest, DB real) verdes: `pnpm test:api`.
-  - **OpenAPI pulida** (`/docs`): 10/10 endpoints con example y ≥2 response schemas.
+  - **49 tests de integración** (Vitest + supertest, DB real) verdes: `pnpm test:api`.
+  - **OpenAPI pulida** (`/docs`): 11/11 endpoints con example y ≥2 response schemas.
   - Global exception filter (errores unificados + `trace_id`, 500 sanitizados) y
     timing interceptor (log estructurado + header `x-response-time-ms`).
   - **Dockerfile multi-stage** probado (node:20-alpine, runtime SWC sin build step,
@@ -180,10 +180,54 @@ Si 500 usuarios abren el mismo producto en 10 segundos (por ejemplo, un influenc
 
 ## Endpoints faltantes (backlog)
 
-- **GET /products/recent-changes?limit=N** — devuelve productos con cambios
-  de precio en las últimas 48hs, ordenados por fecha de cambio DESC, con
-  toda la info de card (precios de ambas cadenas, timestamps, badge info).
-  Necesario para PWA Home "Ofertas destacadas de hoy". Workaround actual:
-  /compare?sort_by=diff_pct_abs&limit=8 + N fetches individuales de
-  /products/{ean}. Ver chango-web/src/app/page.tsx TODO. Detectado
-  durante Fase 3.B checkpoint B1.
+- ~~**GET /products/recent-changes?limit=N**~~ — **IMPLEMENTED 14/07/2026.**
+  Params: `limit` (default 8, max 30), `hours` (default 48, max 168),
+  `min_diff_pct` (opcional). Devuelve el envelope de `GET /products`, así que
+  chango-web puede tirar el workaround (`/compare?sort_by=diff_pct_abs` + N
+  fetches de `/products/{ean}`) y reusar el cliente tipado tal cual. Ver
+  "Decisiones de recent-changes" abajo.
+
+---
+
+## Decisiones de recent-changes (14/07/2026)
+
+- **La ventana `hours` se mide sobre `price_history.first_seen_at`, no sobre
+  `valid_from`.** `valid_from` es DATE: con él, `hours` no tendría resolución
+  horaria y `hours=24` vs `hours=48` darían resultados dependientes de la hora
+  del día en que se llama. `first_seen_at` es TIMESTAMPTZ y marca el instante en
+  que se observó el cambio, que es exactamente lo que el param quiere expresar.
+  El caso de retroactividad intradiaria (segundo cambio del mismo día, que hace
+  UPDATE in-place y deja `first_seen_at` en el insert original) sigue cayendo
+  dentro de cualquier ventana de 24hs, así que no lo afecta.
+
+- **"Cambió de precio" ≠ "tiene fila con valid_from reciente".** Un primer
+  avistaje también estrena fila. El endpoint exige fila previa con
+  `price > 0` y `cur.price <> prev.price`, lo que de paso descarta filas nuevas
+  por promo/disponibilidad con el mismo precio y las discontinuaciones (que
+  cierran `valid_to` sin abrir fila nueva). **Con la data actual el filtro es
+  todo**: el catálogo nació el 13/07, así que las 38.607 filas vigentes tienen
+  `first_seen_at` dentro de las últimas 48hs — la ventana sola no filtra nada y
+  los 5.313 EANs con cambio real salen de exigir el precio anterior.
+
+- **Sin migración de índice.** La query default corre en **131ms** (target: 300ms).
+  El plan usa `idx_ph_ean_valid_from` para el LATERAL al precio anterior,
+  `products_pkey` y `idx_ph_current_available` para los techos. El único Seq Scan
+  es el driver (`valid_to IS NOT NULL`: 5.611 de 44.218 filas): a 12,7% de
+  selectividad el planner elige seq scan y tiene razón, y un índice parcial sobre
+  ese predicado se volvería *menos* selectivo con el tiempo (la proporción de
+  filas cerradas tiende a 100%). **Deuda a futuro:** ese driver escanea todas las
+  filas cerradas históricas, así que crece lineal con la historia (~5k filas/día
+  ⇒ ~1,8M al año). Cuando la mediana del endpoint pase 300ms, la salida es
+  indexar por recencia del cambio, no por `valid_to IS NOT NULL`.
+
+- **El driver es el lado chico a propósito.** Arrancar por las filas vigentes y
+  buscar la anterior con LATERAL da el mismo result set pero corre 38.353
+  lookups en vez de 5.611: medido, **1785ms vs 131ms**. Si alguien "simplifica"
+  la query hacia esa forma, es una regresión de 13x.
+
+- **El top-N default queda dominado por productos de una sola cadena**, porque
+  ordena por magnitud de cambio y no por diff cross-retailer (los cambios más
+  bruscos hoy son de electro/deportes que están en una sola cadena). Para la home
+  del comparador puede convenir `?min_diff_pct=N`, que exige ambas cadenas.
+  **Pendiente de decisión de producto de Juan**: si la home siempre quiere
+  productos comparables, se puede fijar `only_matched` por default en el endpoint.

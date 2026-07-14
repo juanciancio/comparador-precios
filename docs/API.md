@@ -47,6 +47,7 @@ Detalle completo, schemas y ejemplos en **`/docs`**. Resumen:
 | --- | --- | --- |
 | `GET` | `/health` | Liveness + reachability de la DB (200 ok / 503 down). |
 | `GET` | `/products` | Listado paginado del catálogo unificado con precios por cadena. Filtros: `brand`, `category`, `only_matched`, `sort_by`, `sort_dir`. |
+| `GET` | `/products/recent-changes` | Productos con cambios de precio en las últimas N horas, para la home de la PWA. Mismo shape que `/products`. Filtros: `limit` (max 30), `hours` (max 168), `min_diff_pct`. Cacheado 5 min. |
 | `GET` | `/products/:ean` | Detalle de un producto (el EAN se normaliza: strip de ceros a la izquierda). |
 | `GET` | `/products/:ean/price-history` | Histórico de vigencias (SCD-2). Filtros: `retailer`, `from`, `to`. |
 | `POST` | `/products/:ean/refresh` | Refresh on-demand contra los retailers (TTL comunitario, ver nota abajo). |
@@ -91,6 +92,8 @@ queda en los logs, correlacionable por `trace_id`.
 | `RATE_LIMIT_TTL` | Ventana del throttler, en segundos. | `60` | No |
 | `RATE_LIMIT_LIMIT` | Máximo de requests por ventana por IP. | `100` | No |
 | `REFRESH_TTL_SECONDS` | TTL comunitario del refresh on-demand (ver nota). | `60` | No |
+| `RECENT_CHANGES_MAX_PRICE` | Techo de precio de `/products/recent-changes`: descarta el producto si alguna cadena lo supera. | `500000` | No |
+| `RECENT_CHANGES_MAX_DIFF_PCT` | Techo de \|diff_pct\| cross-retailer de `/products/recent-changes`. | `200` | No |
 | `CONTACT_EMAIL` | Email para el User-Agent honesto del cliente VTEX. | `contacto@dominio` | No |
 
 El `.env.example` trae todas con placeholders. **Nunca commitear `.env`.**
@@ -102,7 +105,7 @@ El `.env.example` trae todas con placeholders. **Nunca commitear `.env`.**
 Integration tests (Vitest + supertest) contra la DB real, cero mocks:
 
 ```bash
-pnpm test:api     # solo la API (8 archivos, 39 tests en tests/api/)
+pnpm test:api     # solo la API (9 archivos, 49 tests en tests/api/)
 pnpm test:unit    # solo el scraper (normalización, parsing)
 pnpm test         # ambos
 ```
@@ -110,7 +113,8 @@ pnpm test         # ambos
 Los tests levantan un `INestApplication` real y le pegan con supertest. El
 `REFRESH_TTL_SECONDS` se baja a `2` en el suite para testear la expiración del
 TTL sin esperar 60s. Cubren happy paths + casos sutiles (normalización EAN, TTL
-comunitario, exclusión Genérico, tolerancia de tie 1%, bucketing de diff).
+comunitario, exclusión Genérico, tolerancia de tie 1%, bucketing de diff, techos
+de outliers y orden por magnitud de cambio en recent-changes).
 
 ---
 

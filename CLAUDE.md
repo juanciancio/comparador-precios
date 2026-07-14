@@ -415,11 +415,11 @@ src/api/
 │   └── database/           # DatabaseModule global + token PG_CONNECTION + @InjectPg()
 └── modules/
     ├── health/             # ✅ Fase A: GET /health (SELECT 1, 200 reachable / 503 down)
-    ├── products/           # ⏳ Fase B
-    ├── search/             # ⏳ Fase C
-    ├── compare/            # ⏳ Fase C
-    ├── categories/         # ⏳ Fase D
-    └── brands/             # ⏳ Fase D
+    ├── products/           # ✅ Fase B: listado, detalle, price-history, refresh, recent-changes
+    ├── search/             # ✅ Fase C: GET /search
+    ├── compare/            # ✅ Fase C: GET /compare, GET /compare/stats
+    ├── categories/         # ✅ Fase D: GET /categories (cacheado)
+    └── brands/             # ✅ Fase D: GET /brands (cacheado)
 ```
 
 Entry point: `bin/serve-api.ts`. Scripts: `api:dev` (watch), `api:start`, `api:build` (typecheck con `tsc -p tsconfig.api.json`).
@@ -433,6 +433,32 @@ Entry point: `bin/serve-api.ts`. Scripts: `api:dev` (watch), `api:start`, `api:b
 - **API sin writes de usuario en esta fase.** Cero endpoints CRUD sobre estado de usuario (favoritos, alertas, cuentas). Auth y writes de usuario vienen en **Fase 4**.
 - **Endpoints que disparan el pipeline de scraping (refresh on-demand) sí son válidos y no requieren auth.** Son operaciones sobre datos del retailer, no sobre estado del usuario. Ejemplo: `POST /products/:ean/refresh` reusa `extract` + `transform` + `load` sobre un producto puntual, con TTL comunitario para gate el costo. Ver "Arquitectura de refresh de precios" en `docs/NEXT_SESSION.md`.
 - **Puerto default de dev = `3100`, no `3000`** (el 3000 colisiona con frameworks frontend y, en la máquina de Juan, con un túnel SSH).
+
+### Reglas de recent-changes
+
+`GET /products/recent-changes` alimenta la home de la PWA ("Ofertas destacadas de
+hoy"). Devuelve el **mismo envelope que `GET /products`** (`data` + `pagination`)
+para que el frontend reuse el cliente tipado sin mapeo; `pagination.offset` es
+siempre 0 (es un top-N, no una página).
+
+- **Un producto "cambió de precio" solo si hay fila previa y el precio difiere.**
+  No alcanza con tener una fila de `valid_from` reciente: un primer avistaje
+  también estrena fila, y una fila nueva por promo/disponibilidad puede repetir
+  precio. Se exige `prev.price > 0` y `cur.price <> prev.price`. Esto además
+  descarta discontinuaciones (cierran `valid_to` sin abrir fila nueva).
+- **La ventana `hours` se mide sobre `first_seen_at`, no sobre `valid_from`.**
+  `valid_from` es DATE y no tiene resolución horaria. Ver `docs/NEXT_SESSION.md`
+  → "Decisiones de recent-changes".
+- **Techos de outliers, configurables por env:** `RECENT_CHANGES_MAX_PRICE`
+  (default 500000) descarta el producto si el precio vigente de **cualquier**
+  cadena lo supera; `RECENT_CHANGES_MAX_DIFF_PCT` (default 200) descarta por
+  |diff_pct| cross-retailer. No son cosmética: sin ellos se cuelan los casos de
+  "Data quality signals conocidas" (Set Ilko $4.3M, packs con EAN de unidad) en
+  el lugar donde el usuario espera ofertas. Un producto en una sola cadena no
+  tiene diff que medir y pasa el segundo techo.
+- **No invertir el driver de la query.** Ver el comentario en
+  `products.repository.ts:recentChanges`: arrancar desde las filas vigentes en vez
+  de las cerradas da el mismo resultado 13x más lento (1785ms vs 131ms).
 
 ### Anti-patterns de la API (además de los generales)
 
@@ -452,11 +478,15 @@ Entry point: `bin/serve-api.ts`. Scripts: `api:dev` (watch), `api:start`, `api:b
 
 ### Estado
 
-**Fase 3.A completa (14/07/2026). API lista para deploy.** 10 endpoints, 39 tests
+**Fase 3.A completa (14/07/2026). API lista para deploy.** 11 endpoints, 49 tests
 de integración, OpenAPI spec pulida, Docker image ~377MB (node:20-alpine, runtime
 SWC sin build step; el objetivo de <300MB no se alcanza sin abandonar SWC-at-runtime,
 así que se mantuvo la arquitectura de Fase A). Falta elegir target de deploy
 (decisión abierta #7) y consumir desde la PWA (Fase 3.B).
+
+`GET /products/recent-changes` (14/07/2026) se agregó después del cierre de 3.A,
+pedido por la home de la PWA. Es el único endpoint con reglas de negocio propias
+más allá de filtrar el catálogo — ver "Reglas de recent-changes" abajo.
 
 ---
 
