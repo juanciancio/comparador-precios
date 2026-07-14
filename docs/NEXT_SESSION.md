@@ -1,116 +1,110 @@
 # NEXT SESSION — punto de entrada
 
-> Doc de arranque para la próxima sesión. Estado del proyecto al cierre de Fase 2.
+> Doc de arranque para la próxima sesión. Estado al cierre de la sesión de Fase 3.A / Fase A.
 > Fuente de verdad de decisiones: `CLAUDE.md`. Estado operativo diario: `LATEST_RUN.md`.
 
 ---
 
-## 1. Estado actual
+## 1. Estado actual del proyecto
 
-**Fase 2 cerrada. Sistema en autopilot.**
+- **Fase 2 cerrada:** scrapers Masonline + Carrefour en autopilot vía GitHub
+  Actions (`daily-scrape.yml`, 04:00 ART) + health check semanal. Se alimenta solo.
+- **Fase 3.A en curso — API HTTP (NestJS):** montada en el mismo repo del scraper.
+  - **Fase A (bootstrap + health check): COMPLETA y commiteada.**
+  - **Fase B (Products module): es lo próximo.** No arrancada.
 
-- **Dos retailers scrapeados y persistidos** con el mismo pipeline: Masonline
-  (~12.2k productos con precio) y Carrefour (~26.3k productos con precio).
-- **GitHub Actions corre el scraping diario** (`daily-scrape.yml`, 04:00 ART):
-  Masonline → Carrefour → reporte cruzado, y commitea `LATEST_RUN.md`. Health
-  check semanal (`health-check.yml`) como canario de degradación.
-- **Match cross-retailer estable: ~3.977 EANs** (última corrida de cierre; se
-  mueve en el rango ~3.9k entre corridas por drift natural de precios/stock, no
-  por bugs). Excluye la marca catchall "Genérico" (ver `CLAUDE.md` →
-  "Data quality signals conocidas").
-- **Invariantes vigentes:** todo `price_history.price > 0`; EANs normalizados a
-  forma canónica; idempotencia real (input idéntico por producto → cero escrituras).
-
-Nada bloqueante abierto. El sistema se alimenta solo.
+Ver `CLAUDE.md` → sección **"API HTTP (NestJS)"** para stack, runtime, config de TS
+y convenciones (leer antes de codear Fase B).
 
 ---
 
-## 2. Qué se está esperando (antes de decidir frontend)
+## 2. Sesión anterior (Fase A) — qué quedó hecho
 
-**No arrancar el frontend todavía.** Falta data para una decisión informada:
-**web reflexiva vs app con notificaciones push.**
-
-Se necesitan **5-7 días de historia diaria acumulada** (a partir de ~2026-07-19)
-para medir la **frecuencia real de cambios de precio**. La pregunta que responde
-esa data:
-
-- Si los precios cambian **seguido** (muchas vigencias nuevas por día) → hay caso
-  para **notificaciones push** (app: "bajó el producto que seguís").
-- Si cambian **poco** (pocos cambios por día) → una **web reflexiva** (mirás
-  cuando querés) alcanza y sobra; no justifica una app.
-
-La decisión frontend (punto 1 de "Decisiones abiertas" en `CLAUDE.md`) se toma
-**con este número en la mano**, no antes.
-
----
-
-## 3. Casos de estudio pendientes para `suspicion_score` (Fase 3)
-
-El `suspicion_score` (Fase 3) necesita reglas calibradas con casos reales. Estos
-tres salieron del top-20 de diferencias del reporte cruzado y **requieren
-investigación de campo** (mirar las fichas reales en cada sitio) antes de escribir
-las reglas:
-
-1. **Motorola Moto G67 256GB** (+83% de diff, EANs `7790894901943` /
-   `7790894902018`). Masonline $499.999 vs Carrefour $916.799. **Verificar si son
-   el producto idéntico** o difieren en condiciones comerciales (financiación,
-   bundle, versión de RAM/almacenamiento con mismo EAN). Es el caso "marca real,
-   diff alta, ¿legítima?".
-
-2. **H2oh! saborizadas** (+82% en cuatro sabores: limón, naranja, manzana, pomelo;
-   EANs `7791813*`). Masonline $1.759,45 vs Carrefour $3.200. **Probable
-   pack-vs-unidad** (una cadena vende la unidad 1,5L, la otra el pack) con el mismo
-   EAN. Caso "mismo EAN, distinta unidad de venta".
-
-3. **Iael — bolso kit de seguridad** (+1325%, EAN `7798160620154`). Masonline
-   $3.999 vs Carrefour $56.990. **Probable error de carga catastrófico** en un
-   retailer (dígito de más). Caso "outlier absurdo = data error, no promo".
-
-Cada uno mapea a una regla candidata del score: (1) condiciones comerciales,
-(2) mismatch pack/unidad por keywords, (3) umbral absurdo (`diff_pct > 200%` +
-`precio > $500k`). **No se implementó `suspicion_score` todavía** — es un
-mini-proyecto de Fase 3.
+- **Bootstrap NestJS con runtime SWC** (`@swc-node/register`, NO tsx — esbuild no
+  emite decorator metadata y rompe la DI de Nest; detalle en `CLAUDE.md`).
+- **Health check real:** `GET /health` hace `SELECT 1` contra Supabase; 200 si la
+  DB responde, 503 si no.
+- **Swagger UI en `/docs`**, spec JSON en `/docs-json` (título "Comparador de
+  Precios API" v0.1).
+- **DatabaseModule global** reusa el singleton `src/lib/db.ts` (token
+  `PG_CONNECTION` / `@InjectPg()`), sin segundo pool.
+- Throttler 100/min por IP, CORS por env, `ZodValidationPipe` global cableado,
+  env validado con Zod (`src/api/config/env.ts`).
+- **Ambos typechecks verdes:** `pnpm typecheck` (scraper) y `pnpm api:build` (API).
+- Commit: `feat(api): bootstrap NestJS app with health check`.
+- **Puerto default de dev: `3100`** (el 3000 colisiona con frameworks frontend y,
+  en la máquina de Juan, con un túnel SSH). Correr con `pnpm api:dev`.
 
 ---
 
-## 4. Query sugerida para el día 5-7 (frecuencia de cambios)
+## 3. Próximos pasos en orden
 
-Determina si las notificaciones push tienen caso (app) o si una web reflexiva
-alcanza. Cuenta vigencias nuevas (= cambios de precio/estado) por día y retailer:
+### Inmediato — Fase B (Products module)
 
-```sql
--- NOTA: el schema usa modelo de vigencias, NO hay columna `scraped_at`.
--- `valid_from` (DATE) es el día en que empezó a regir un precio = el día del cambio.
-SELECT valid_from, retailer_id, COUNT(*) AS cambios
-FROM price_history
-WHERE valid_from >= CURRENT_DATE - INTERVAL '7 days'
-GROUP BY valid_from, retailer_id
-ORDER BY valid_from, retailer_id;
-```
+1. **`ProductsController` con 3 endpoints:**
+   - `GET /products` — paginado + filtros: `limit`, `offset`, `brand`,
+     `category`, `only_matched`, `sort_by`, `sort_dir`.
+   - `GET /products/:ean` — detalle individual (404 si no existe).
+   - `GET /products/:ean/price-history` — histórico, filtrable por `retailer` y
+     rango `from`/`to`.
+2. **`EXPLAIN ANALYZE` de la query de `only_matched=true`** con filtros
+   combinados. Objetivo: **<200ms** contra Supabase. Si el planner no usa
+   índices, agregar migración `006_indices_for_api.sql` con los faltantes
+   (decisión abierta #8 en `CLAUDE.md`).
+3. **Reportar al terminar Fase B:** outputs de `curl` de los 3 endpoints, un
+   ejemplo con filtros combinados, `EXPLAIN ANALYZE` de la query más pesada, e
+   índices nuevos si hubo.
 
-**Cómo leerlo:** el primer día de cada retailer infla el conteo (carga inicial de
-vigencias); ignorar ese pico y mirar los días siguientes. Muchos `cambios/día`
-sostenidos → push tiene caso. Pocos → web reflexiva.
+### Siguientes fases dentro de 3.A
 
-Complemento útil (magnitud de los cambios, no solo cantidad):
+- **Fase C:** Search (`GET /search`) + Compare (`GET /compare`, `GET /compare/stats`).
+  Recordar excluir `brand IN ('Genérico','Generico')` en compare.
+- **Fase D:** Categories (`GET /categories`) + Brands (`GET /brands`). Cacheables.
+- **Fase E:** pulido OpenAPI (contrato con PWA/Flutter, prioridad alta), global
+  exception filter, timing interceptor, **Dockerfile multi-stage**, tests de
+  integración con supertest (≥1 por módulo, contra DB real).
 
-```sql
-SELECT valid_from, retailer_id,
-       COUNT(*) AS cambios,
-       COUNT(*) FILTER (WHERE has_promo) AS con_promo
-FROM price_history
-WHERE valid_from >= CURRENT_DATE - INTERVAL '7 days' AND valid_to IS NULL
-GROUP BY valid_from, retailer_id
-ORDER BY valid_from, retailer_id;
-```
+### Después de Fase 3.A
+
+- Sesión propia para **deployar la API** (target por decidir: Fly.io / Railway /
+  Render — decisión abierta #7 en `CLAUDE.md`).
+- **Fase 3.B:** PWA con Next.js en **repo separado**, consumiendo el OpenAPI.
 
 ---
 
-## 5. Estado operativo diario
+## 4. Contexto operativo
 
-**`LATEST_RUN.md`** (en la raíz del repo) es el reporte cruzado más reciente,
-commiteado automáticamente por el workflow diario. Es la fuente rápida de "cómo
-está el comparador hoy" sin tener que correr nada. Para regenerarlo a mano:
-`pnpm report --cross-retailer`.
+- Sistema de scraping funcionando: `LATEST_RUN.md` tiene el estado diario.
+- Dataset actual: ~12k productos Masonline, ~26k Carrefour, ~3.9k matches
+  cross-retailer por EAN (excluye "Genérico").
+- **La API se prueba contra la DB real de Supabase, cero mocks en checkpoints.**
+- Health del scraper a mano: `pnpm tsx bin/health-check.ts`.
 
-Para verificar salud del sistema a mano: `pnpm tsx bin/health-check.ts`.
+---
+
+## 5. Monetización (postponed — decisión estratégica, no se codea ahora)
+
+- **No hay monetización activa en esta fase.** Los ~$5-40/mes de infra los cubre
+  Juan como inversión.
+- **Al lanzar la PWA públicamente:** links de afiliado a los retailers comparados
+  (investigar programa Awin / Carrefour AR) + botón "Invitame un cafecito" en el
+  footer. Cero fricción ética, cero intrusividad visual.
+- **Freemium y B2B** (venta de data agregada a medios/fintech/consultoras):
+  evaluados para 12-18+ meses, no ahora.
+- **Consideración de diseño para no cerrar puertas:** cuando el frontend haga "ir
+  a comprar en X retailer", enviar un evento a un endpoint de tracking propio
+  **antes** del redirect. No se implementa ahora, pero se tiene en mente al
+  diseñar la API pública para la PWA.
+
+---
+
+## 6. Convenciones ya establecidas (no reinventar)
+
+- TS estricto, cero `any`.
+- Zod para todo input, sin `class-validator`.
+- Sin ORM; driver `postgres` compartido con el scraper.
+- Un commit por fase, mensajes en inglés `feat(scope): ...`.
+- Checkpoint aprobado antes de cada fase.
+- Commits directo a `main` (proyecto de un solo dev, sin ceremonia de branches).
+- Timezone `America/Argentina/Buenos_Aires` para presentation de fechas.
+- Imports con `.ts` explícita en todo el repo, incluido `src/api` (ver `CLAUDE.md`).

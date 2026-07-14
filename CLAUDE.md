@@ -371,6 +371,75 @@ ORDER BY valid_from DESC;
 
 ---
 
+## API HTTP (NestJS)
+
+La API HTTP (Fase 3.A) vive en **el mismo repo** que el scraper: comparten DB, migrations, `src/lib/`, config y dependencias. Se deployan a targets distintos (scraper → GitHub Actions cron; API → servicio HTTP always-on). El contrato con los frontends (PWA Next.js, luego app Flutter) es **OpenAPI/JSON**, no código compartido.
+
+### Stack decidido (no cambiar sin acuerdo)
+
+- **Framework:** NestJS. Por madurez, `@nestjs/swagger` (OpenAPI auto-generado), y estructura de módulos/guards/interceptors/pipes para escalar superficie de endpoints.
+- **Validación:** `nestjs-zod` (Zod, no `class-validator`). Consistencia con el pipeline, que ya usa Zod. Los DTOs son Zod schemas convertidos a class con `createZodDto`; el spec se limpia con `cleanupOpenApiDoc`.
+- **Logging:** `nestjs-pino` (base `{ service: 'api' }`). Pretty en dev, JSON crudo en prod.
+- **DB:** el **mismo driver `postgres` (porsager)** que el scraper. **Sin ORM.** `DatabaseModule` (global) expone el singleton de `src/lib/db.ts` como injectable vía token `PG_CONNECTION` (`@InjectPg()`). No se abre un segundo pool.
+
+### Runtime: SWC, NO tsx
+
+La API corre TS en runtime con **SWC** (`@swc-node/register`), no con `tsx`. **Por qué:** NestJS necesita metadata de decoradores emitida en tiempo de compilación (`emitDecoratorMetadata`) para su DI y para `nestjs-zod`. `tsx` usa `esbuild` internamente, que **no emite esa metadata** (limitación conocida y verificada empíricamente en Fase A: `design:paramtypes` sale `undefined` → la DI de Nest se rompe). SWC sí la emite. Sigue siendo **TS-at-runtime, sin `dist/`**, consistente con la premisa original de "sin build step". **Env var requerida:** `SWC_NODE_PROJECT=tsconfig.api.json` (apunta a SWC al tsconfig con decoradores; el default `tsconfig.json` los tiene apagados).
+
+### Config asimétrica de TS
+
+`tsconfig.api.json` extiende del base pero:
+- **activa** `experimentalDecorators` y `emitDecoratorMetadata` (los necesita la DI de Nest y `nestjs-zod`);
+- **desactiva** `verbatimModuleSyntax` (con `emitDecoratorMetadata`, los type-only imports usados en constructores NO deben elidirse, o la DI se rompe);
+- **mantiene** `allowImportingTsExtensions` (heredado del base).
+
+Dos ajustes de `include`/`exclude` que van juntos y no hay que "simplificar":
+- El **base** (`tsconfig.json`) **excluye** `src/api` y `bin/serve-api.ts`. Si no, `pnpm typecheck` (que corre el base) tiparía los decoradores de la API sin `experimentalDecorators` y fallaría.
+- `tsconfig.api.json` **re-declara** `include` (todo `src/**`, `bin/**`, `tests/**`) para no heredar ese exclude y así cubrir `src/api`.
+
+Resultado: `pnpm typecheck` valida el scraper, `pnpm api:build` valida la API. Ambos deben quedar verdes.
+
+**Convención de imports:** `.ts` explícita en **todo** el repo, incluido `src/api`. Es lo que exige `moduleResolution: NodeNext` (imports relativos sin extensión no resuelven) y es consistente con el scraper. *(Nota: el plan original de Fase 3.A anticipaba imports sin extensión al estilo NestJS; se descartó porque no resuelven bajo la config NodeNext del repo y desactivar `allowImportingTsExtensions` rompería los `.ts` compartidos del scraper.)*
+
+### Estructura de módulos
+
+```
+src/api/
+├── main.ts                 # createApp() (sin listen, para tests) + bootstrap()
+├── app.module.ts           # LoggerModule, ThrottlerModule, DatabaseModule, APP_GUARD, APP_PIPE
+├── config/
+│   └── env.ts              # env de la API validado con Zod (API_PORT, CORS_ORIGINS, RATE_LIMIT_*)
+├── common/
+│   └── database/           # DatabaseModule global + token PG_CONNECTION + @InjectPg()
+└── modules/
+    ├── health/             # ✅ Fase A: GET /health (SELECT 1, 200 reachable / 503 down)
+    ├── products/           # ⏳ Fase B
+    ├── search/             # ⏳ Fase C
+    ├── compare/            # ⏳ Fase C
+    ├── categories/         # ⏳ Fase D
+    └── brands/             # ⏳ Fase D
+```
+
+Entry point: `bin/serve-api.ts`. Scripts: `api:dev` (watch), `api:start`, `api:build` (typecheck con `tsc -p tsconfig.api.json`).
+
+### Convenciones de endpoints
+
+- **Paths:** kebab-case (`/price-history`).
+- **Query params:** snake_case (`only_matched`, `sort_by`, `min_diff_pct`).
+- **Response bodies:** camelCase en las keys de JS/JSON... **excepto** donde el contrato ya fijó snake_case (ej. `uptime_seconds` del health, `masonline_price`/`carrefour_price`/`diff_pct` del compare). Regla práctica: seguir el shape exacto acordado por endpoint en el prompt de la fase; no "normalizar" a mano.
+- **Timezone:** fechas de presentación en `America/Argentina/Buenos_Aires`, no UTC crudo.
+- **API read-only en MVP.** Cero endpoints de escritura. Auth y writes (POST/PUT/DELETE) llegan con **Fase 4** (favoritos/alertas).
+- **Puerto default de dev = `3100`, no `3000`** (el 3000 colisiona con frameworks frontend y, en la máquina de Juan, con un túnel SSH).
+
+### Anti-patterns de la API (además de los generales)
+
+1. **No inventar endpoints fuera de la lista de la fase.** Si aparece "sería útil también...", se para y se consulta. Superficie mínima que responde al MVP.
+2. **No usar ORMs** (TypeORM, Prisma, MikroORM, Drizzle). El driver `postgres` compartido es la única fuente de acceso a DB.
+3. **No exponer detalle de implementación en responses.** Los tipos de respuesta son un contrato para consumidores, no un mirror de tablas. Ej: `retailer_products.sku_id_retailer` es interno, no va en la respuesta.
+4. **No hacer queries N+1.** Combinar datos de varias tablas es UN join o UNA subquery, no N queries en loop. Monitor: si un request dispara 20 queries en los logs, es bug.
+
+---
+
 ## Roadmap
 
 **Fase 1 — MVP Scraper Masonline** *(sesión actual)*
@@ -424,6 +493,8 @@ Estas son decisiones que **NO** debe tomar Claude Code solo. Si el trabajo requi
 4. **Dónde correr los cronjobs.** Decidido en post-Fase 2: **GitHub Actions** con schedule diario. Motivos: gratis, versionado con el código, notificación por email automática al owner en fallos, no requiere infra propia. Alternativas descartadas por complejidad (VPS propio, Supabase edge functions con time triggers). Se revisita solo si GitHub Actions da problemas de rate-limiting con VTEX (los runners están en US-East).
 5. **Estrategia de bloqueos futuros.** Si Carrefour empieza a bloquear con Cloudflare, se evalúa proxies residenciales. No es problema hoy.
 6. **Estrategia de outliers en el frontend/app.** En Fase 3 hay que implementar `suspicion_score` calculado por producto matcheado (reglas: `diff_pct > 200%`, `precio absoluto > $500k`, mismatch de palabras clave pack/unidad). Por default, ocultar `suspicion_score` alto; toggle para power users.
+7. **Target de deploy de la API.** Fly.io vs Railway vs Render. Pendiente para una sesión futura dedicada. El Dockerfile multi-stage queda listo en Fase E de 3.A.
+8. **Índices adicionales para la API.** Si Fase B (Products) revela queries frecuentes sin índice (especialmente `only_matched` con JOIN a `price_history` de ambos retailers), se agrega migración `006_indices_for_api.sql`. Postponed hasta ver el patrón real de queries con `EXPLAIN ANALYZE`.
 
 ---
 
