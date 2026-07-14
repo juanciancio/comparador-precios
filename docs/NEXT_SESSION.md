@@ -176,3 +176,14 @@ Si 500 usuarios abren el mismo producto en 10 segundos (por ejemplo, un influenc
   supere 500ms o el CPU de Supabase pase 60%, refactorizar a un path 
   `loadRunForSingleEan(ean)` que hace SELECT puntual en vez de precarga.
   Detectado en Fase B (14/07/2026).
+---
+
+## Endpoints faltantes (backlog)
+
+- **GET /products/recent-changes?limit=N** — devuelve productos con cambios
+  de precio en las últimas 48hs, ordenados por fecha de cambio DESC, con
+  toda la info de card (precios de ambas cadenas, timestamps, badge info).
+  Necesario para PWA Home "Ofertas destacadas de hoy". Workaround actual:
+  /compare?sort_by=diff_pct_abs&limit=8 + N fetches individuales de
+  /products/{ean}. Ver chango-web/src/app/page.tsx TODO. Detectado
+  durante Fase 3.B checkpoint B1.
