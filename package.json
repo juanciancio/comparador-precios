@@ -4,6 +4,7 @@
   "description": "Comparador de precios entre supermercados argentinos (VTEX IO)",
   "type": "module",
   "private": true,
+  "packageManager": "pnpm@10.26.2",
   "engines": {
     "node": ">=20"
   },
@@ -27,9 +28,9 @@
     "@nestjs/platform-express": "^11.1.28",
     "@nestjs/swagger": "^11.4.5",
     "@nestjs/throttler": "^6.5.0",
+    "@swc-node/register": "^1.11.1",
+    "@swc/core": "^1.15.43",
     "cache-manager": "^7.2.9",
-    "class-transformer": "^0.5.1",
-    "class-validator": "^0.15.1",
     "express": "^5.2.1",
     "nestjs-pino": "^4.6.1",
     "nestjs-zod": "^5.4.0",
@@ -46,8 +47,6 @@
   "devDependencies": {
     "@nestjs/cli": "^11.0.24",
     "@nestjs/testing": "^11.1.28",
-    "@swc-node/register": "^1.11.1",
-    "@swc/core": "^1.15.43",
     "@types/express": "^5.0.6",
     "@types/node": "^22.10.7",
     "@types/supertest": "^7.2.0",
