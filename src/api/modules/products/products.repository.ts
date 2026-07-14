@@ -17,6 +17,8 @@ export interface ListFilters {
   onlyMatched: boolean;
   sortBy: 'name' | 'brand' | 'first_seen' | 'last_seen';
   sortDir: 'asc' | 'desc';
+  /** Términos de búsqueda; cada uno debe matchear (AND) name o brand. Usado por /search. */
+  terms?: string[] | undefined;
 }
 
 export interface PriceHistoryFilters {
@@ -99,6 +101,12 @@ export class ProductsRepository {
           WHERE ph.ean = p.ean AND ph.valid_to IS NULL AND ph.is_available
         ) >= 2`
       : sql``;
+    // Cada término debe matchear name o brand (AND entre términos, OR entre columnas).
+    const searchFilter = (f.terms ?? []).reduce(
+      (acc, term) =>
+        sql`${acc} AND (p.name_canonical ILIKE ${'%' + term + '%'} OR p.brand ILIKE ${'%' + term + '%'})`,
+      sql``,
+    );
 
     const orderCol = {
       name: sql`p.name_canonical`,
@@ -114,14 +122,14 @@ export class ProductsRepository {
         p.first_seen_at, p.last_seen_at,
         ${this.retailerOffersSubquery()} AS retailers
       FROM products p
-      WHERE TRUE ${brandFilter} ${categoryFilter} ${matchedFilter}
+      WHERE TRUE ${brandFilter} ${categoryFilter} ${matchedFilter} ${searchFilter}
       ORDER BY ${orderCol} ${orderDir} NULLS LAST, p.ean ASC
       LIMIT ${f.limit} OFFSET ${f.offset}
     `;
 
     const totalRows = await sql<{ total: number }[]>`
       SELECT COUNT(*)::int AS total FROM products p
-      WHERE TRUE ${brandFilter} ${categoryFilter} ${matchedFilter}
+      WHERE TRUE ${brandFilter} ${categoryFilter} ${matchedFilter} ${searchFilter}
     `;
 
     return { data: rows.map(toProduct), total: totalRows[0]!.total };
