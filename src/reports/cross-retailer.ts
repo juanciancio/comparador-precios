@@ -56,6 +56,11 @@ export async function crossRetailerReport(): Promise<string> {
       AND c.valid_to IS NULL
       AND c.is_available
     WHERE m.price > 0
+      -- "Genérico" es un catchall que cada cadena usa distinto; no es comparable
+      -- cross-retailer (ver "Data quality signals conocidas" en CLAUDE.md). Se
+      -- excluyen las 2 variantes hasta canonicalizar marcas (Fase 3+). El guard
+      -- de NULL evita descartar matches legítimos sin marca.
+      AND (p.brand IS NULL OR p.brand NOT IN ('Genérico', 'Generico'))
     ORDER BY ABS((c.price - m.price) / m.price) DESC
   `;
 
