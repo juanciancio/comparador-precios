@@ -14,23 +14,34 @@ const isoDate = z
 // ─── Query params ────────────────────────────────────────────────────────────
 
 export const ListProductsQuerySchema = z.object({
-  limit: z.coerce.number().int().min(1).max(100).default(20),
-  offset: z.coerce.number().int().min(0).default(0),
-  brand: z.string().min(1).optional(),
-  // Substring case-insensitive contra category_path (p. ej. "Bebidas").
-  category: z.string().min(1).optional(),
-  // true -> solo productos con precio vigente y disponible en >=2 cadenas.
-  only_matched: booleanQuery.optional().default(false),
-  sort_by: z.enum(['name', 'brand', 'first_seen', 'last_seen']).default('name'),
-  sort_dir: z.enum(['asc', 'desc']).default('asc'),
+  limit: z.coerce.number().int().min(1).max(100).default(20).describe('Tamaño de página (1–100). Ej: 20'),
+  offset: z.coerce.number().int().min(0).default(0).describe('Desplazamiento para paginar. Ej: 40'),
+  brand: z.string().min(1).optional().describe("Marca exacta a filtrar. Ej: 'La Serenísima'"),
+  category: z
+    .string()
+    .min(1)
+    .optional()
+    .describe("Substring case-insensitive contra category_path. Ej: 'Bebidas'"),
+  only_matched: booleanQuery
+    .optional()
+    .default(false)
+    .describe('Si true, solo productos con precio vigente y disponible en ≥2 cadenas.'),
+  sort_by: z
+    .enum(['name', 'brand', 'first_seen', 'last_seen'])
+    .default('name')
+    .describe('Campo de ordenamiento.'),
+  sort_dir: z.enum(['asc', 'desc']).default('asc').describe('Dirección del ordenamiento.'),
 });
 export class ListProductsQueryDto extends createZodDto(ListProductsQuerySchema) {}
 
 export const PriceHistoryQuerySchema = z.object({
-  // Slug de retailer; se valida contra los seedeados en el service (400 si no existe).
-  retailer: z.string().min(1).optional(),
-  from: isoDate.optional(),
-  to: isoDate.optional(),
+  retailer: z
+    .string()
+    .min(1)
+    .optional()
+    .describe("Slug de retailer para filtrar. Ej: 'masonline' o 'carrefour'."),
+  from: isoDate.optional().describe('Desde (inclusive), sobre valid_from. YYYY-MM-DD. Ej: 2026-07-01'),
+  to: isoDate.optional().describe('Hasta (inclusive), sobre valid_from. YYYY-MM-DD. Ej: 2026-07-14'),
 });
 export class PriceHistoryQueryDto extends createZodDto(PriceHistoryQuerySchema) {}
 

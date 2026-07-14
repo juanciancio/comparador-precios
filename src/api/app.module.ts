@@ -19,6 +19,9 @@ import { apiEnv, isProduction } from './config/env.ts';
       pinoHttp: {
         level: apiEnv.LOG_LEVEL,
         base: { service: 'api' },
+        // El log por-request lo emite TimingInterceptor (con duration_ms). Apagamos
+        // el autoLogging de nestjs-pino para no duplicar.
+        autoLogging: false,
         // Pretty output in dev only; pino-pretty is a devDependency and is
         // pruned in the production image.
         ...(isProduction()

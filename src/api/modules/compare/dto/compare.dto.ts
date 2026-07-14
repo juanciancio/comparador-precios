@@ -4,17 +4,24 @@ import { z } from 'zod';
 // ─── Query params ────────────────────────────────────────────────────────────
 
 export const CompareQuerySchema = z.object({
-  limit: z.coerce.number().int().min(1).max(100).default(20),
-  offset: z.coerce.number().int().min(0).default(0),
-  brand: z.string().min(1).optional(),
-  category: z.string().min(1).optional(),
-  // Filtra por |diff_pct| >= min. Útil para ver solo diferencias grandes.
-  min_diff_pct: z.coerce.number().min(0).optional(),
-  // Filtra por cuál cadena es más barata (misma tolerancia de tie que el resto).
-  cheaper_at: z.enum(['masonline', 'carrefour', 'tie']).optional(),
-  // 'diff' y su alias 'diff_pct_abs' ordenan por |diff_pct|; 'name' por nombre.
-  sort_by: z.enum(['diff', 'diff_pct_abs', 'name']).default('diff'),
-  sort_dir: z.enum(['asc', 'desc']).default('desc'),
+  limit: z.coerce.number().int().min(1).max(100).default(20).describe('Tamaño de página (1–100).'),
+  offset: z.coerce.number().int().min(0).default(0).describe('Desplazamiento para paginar.'),
+  brand: z.string().min(1).optional().describe("Marca exacta a filtrar. Ej: 'La Serenísima'"),
+  category: z.string().min(1).optional().describe("Substring case-insensitive de categoría. Ej: 'Electro'"),
+  min_diff_pct: z.coerce
+    .number()
+    .min(0)
+    .optional()
+    .describe('Filtra por |diff_pct| ≥ este valor. Ej: 50 (solo diferencias grandes).'),
+  cheaper_at: z
+    .enum(['masonline', 'carrefour', 'tie'])
+    .optional()
+    .describe('Filtra por cuál cadena es más barata (tie = |diff| ≤ 1%).'),
+  sort_by: z
+    .enum(['diff', 'diff_pct_abs', 'name'])
+    .default('diff')
+    .describe("Ordenamiento. 'diff' y 'diff_pct_abs' (alias) por |diff_pct|; 'name' por nombre."),
+  sort_dir: z.enum(['asc', 'desc']).default('desc').describe('Dirección del ordenamiento.'),
 });
 export class CompareQueryDto extends createZodDto(CompareQuerySchema) {}
 

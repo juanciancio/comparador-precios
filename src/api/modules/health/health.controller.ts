@@ -15,7 +15,7 @@ const HEALTH_DEGRADED_EXAMPLE = {
   uptime_seconds: 42,
 };
 
-@ApiTags('health')
+@ApiTags('Health')
 @Controller('health')
 export class HealthController {
   constructor(private readonly health: HealthService) {}
