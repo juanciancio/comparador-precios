@@ -9,20 +9,46 @@ export interface RetailerInfo {
   name: string;
 }
 
-export interface ListFilters {
-  limit: number;
-  offset: number;
-  /** Marcas exactas; matchea cualquiera de ellas (OR). Vacío = sin filtro. */
-  brand?: string[] | undefined;
+/**
+ * Recorte del catálogo, sin el filtro de marca. Es lo que /products y /search
+ * aplican antes de filtrar por `brand`, y lo que GET /search/facets usa como
+ * universo para contar marcas.
+ *
+ * Vive separado de `ListFilters` porque los facets deben contar sobre el scope
+ * SIN filtro de marca (así los contadores no se mueven cuando el usuario tilda
+ * una marca en el sidebar), pero por lo demás el recorte tiene que ser idéntico
+ * al de la grilla o los números del sidebar mienten. Un solo `scopeSql()` lo
+ * resuelve para los tres endpoints.
+ */
+export interface ScopeFilters {
   /** Departamentos top-level exactos; matchea cualquiera (OR). Vacío = sin filtro. */
   categoryTop?: string[] | undefined;
   /** @deprecated Substring sobre el path completo; usar categoryTop. */
   category?: string | undefined;
   onlyMatched: boolean;
-  sortBy: 'name' | 'brand' | 'first_seen' | 'last_seen';
-  sortDir: 'asc' | 'desc';
   /** Términos de búsqueda; cada uno debe matchear (AND) name o brand. Usado por /search. */
   terms?: string[] | undefined;
+}
+
+export interface ListFilters extends ScopeFilters {
+  limit: number;
+  offset: number;
+  /** Marcas exactas; matchea cualquiera de ellas (OR). Vacío = sin filtro. */
+  brand?: string[] | undefined;
+  sortBy: 'name' | 'brand' | 'first_seen' | 'last_seen';
+  sortDir: 'asc' | 'desc';
+}
+
+export interface BrandFacetFilters extends ScopeFilters {
+  limit: number;
+  /** Substring case-insensitive sobre el nombre de marca. Vacío = top por count. */
+  brandQuery?: string | undefined;
+}
+
+/** Marca + cantidad de productos dentro de un scope. Contrato en search/dto/facets.dto.ts. */
+export interface BrandFacet {
+  name: string;
+  count: number;
 }
 
 export interface RecentChangesFilters {
@@ -107,26 +133,7 @@ export class ProductsRepository {
     const sql = this.sql;
     // .length, no truthiness: [] es truthy y filtraría por ninguna marca.
     const brandFilter = f.brand?.length ? sql`AND p.brand = ANY(${f.brand})` : sql``;
-    // Match exacto contra el primer segmento del path: category_path arranca con
-    // '/', así que split_part(..., '/', 1) es '' y el departamento es el 2.
-    const categoryTopFilter = f.categoryTop?.length
-      ? sql`AND split_part(p.category_path, '/', 2) = ANY(${f.categoryTop})`
-      : sql``;
-    const categoryFilter = f.category
-      ? sql`AND p.category_path ILIKE ${'%' + f.category + '%'}`
-      : sql``;
-    const matchedFilter = f.onlyMatched
-      ? sql`AND (
-          SELECT COUNT(*) FROM price_history ph
-          WHERE ph.ean = p.ean AND ph.valid_to IS NULL AND ph.is_available
-        ) >= 2`
-      : sql``;
-    // Cada término debe matchear name o brand (AND entre términos, OR entre columnas).
-    const searchFilter = (f.terms ?? []).reduce(
-      (acc, term) =>
-        sql`${acc} AND (p.name_canonical ILIKE ${'%' + term + '%'} OR p.brand ILIKE ${'%' + term + '%'})`,
-      sql``,
-    );
+    const scopeFilter = this.scopeSql(f);
 
     const orderCol = {
       name: sql`p.name_canonical`,
@@ -142,14 +149,14 @@ export class ProductsRepository {
         p.first_seen_at, p.last_seen_at,
         ${this.retailerOffersSubquery()} AS retailers
       FROM products p
-      WHERE TRUE ${brandFilter} ${categoryTopFilter} ${categoryFilter} ${matchedFilter} ${searchFilter}
+      WHERE TRUE ${brandFilter} ${scopeFilter}
       ORDER BY ${orderCol} ${orderDir} NULLS LAST, p.ean ASC
       LIMIT ${f.limit} OFFSET ${f.offset}
     `;
 
     const totalRows = await sql<{ total: number }[]>`
       SELECT COUNT(*)::int AS total FROM products p
-      WHERE TRUE ${brandFilter} ${categoryTopFilter} ${categoryFilter} ${matchedFilter} ${searchFilter}
+      WHERE TRUE ${brandFilter} ${scopeFilter}
     `;
 
     return { data: rows.map(toProduct), total: totalRows[0]!.total };
@@ -310,6 +317,80 @@ export class ProductsRepository {
       slug: r.slug,
       lastSeenAt: r.last_seen_at,
     }));
+  }
+
+  /**
+   * Conteo de productos por marca dentro de un scope, para el sidebar de filtros.
+   *
+   * El scope sale del mismo `scopeSql()` que usa `listProducts`, y NO aplica el
+   * filtro de marca: los contadores describen el universo previo a tildar marcas,
+   * que es lo que permite mostrar "otras marcas disponibles en este scope" y que
+   * los números no se muevan al filtrar. La suma de counts sobre todas las marcas
+   * de un scope iguala el `total` de /products o /search con esos mismos params.
+   *
+   * `brand IS NOT NULL`: products.brand es nullable (transform.ts manda null si
+   * el retailer no informa marca) y una fila sin marca no es una opción tildeable
+   * en el sidebar. Hoy son 0 filas, así que no abre gap contra el total.
+   */
+  async brandFacets(f: BrandFacetFilters): Promise<BrandFacet[]> {
+    const sql = this.sql;
+    const scopeFilter = this.scopeSql(f);
+    const brandQueryFilter = f.brandQuery
+      ? sql`AND p.brand ILIKE ${'%' + f.brandQuery + '%'}`
+      : sql``;
+
+    // Con texto, los que empiezan con el término van primero: al tipear "ser" se
+    // espera "Serenísima" antes que "Cañuelas Serenísima". El boolean ordena
+    // true-first con DESC. Sin texto, es top por count puro.
+    const orderBy = f.brandQuery
+      ? sql`(p.brand ILIKE ${f.brandQuery + '%'}) DESC, COUNT(*) DESC, p.brand ASC`
+      : sql`COUNT(*) DESC, p.brand ASC`;
+
+    return sql<BrandFacet[]>`
+      SELECT p.brand AS name, COUNT(*)::int AS count
+      FROM products p
+      WHERE p.brand IS NOT NULL ${scopeFilter} ${brandQueryFilter}
+      GROUP BY p.brand
+      ORDER BY ${orderBy}
+      LIMIT ${f.limit}
+    `;
+  }
+
+  /**
+   * Recorte del catálogo compartido por /products, /search y /search/facets.
+   * Es deliberadamente el único lugar donde se traduce `ScopeFilters` a SQL: si
+   * los facets divergieran del listado, los contadores del sidebar mentirían
+   * respecto de la grilla de al lado.
+   *
+   * No excluye la marca catchall "Genérico" bajo `onlyMatched`. La regla dura del
+   * proyecto aplica a comparaciones de precio cross-retailer (/compare,
+   * matched_count, recent-changes); `onlyMatched` solo filtra por disponibilidad
+   * en ≥2 cadenas y nunca la excluyó. Ver CLAUDE.md → "Data quality signals".
+   */
+  private scopeSql(f: ScopeFilters) {
+    const sql = this.sql;
+    // Match exacto contra el primer segmento del path: category_path arranca con
+    // '/', así que split_part(..., '/', 1) es '' y el departamento es el 2.
+    const categoryTopFilter = f.categoryTop?.length
+      ? sql`AND split_part(p.category_path, '/', 2) = ANY(${f.categoryTop})`
+      : sql``;
+    const categoryFilter = f.category
+      ? sql`AND p.category_path ILIKE ${'%' + f.category + '%'}`
+      : sql``;
+    const matchedFilter = f.onlyMatched
+      ? sql`AND (
+          SELECT COUNT(*) FROM price_history ph
+          WHERE ph.ean = p.ean AND ph.valid_to IS NULL AND ph.is_available
+        ) >= 2`
+      : sql``;
+    // Cada término debe matchear name o brand (AND entre términos, OR entre columnas).
+    const searchFilter = (f.terms ?? []).reduce(
+      (acc, term) =>
+        sql`${acc} AND (p.name_canonical ILIKE ${'%' + term + '%'} OR p.brand ILIKE ${'%' + term + '%'})`,
+      sql``,
+    );
+
+    return sql`${categoryTopFilter} ${categoryFilter} ${matchedFilter} ${searchFilter}`;
   }
 
   /**

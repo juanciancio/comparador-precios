@@ -2,7 +2,7 @@ import { createZodDto } from 'nestjs-zod';
 import { z } from 'zod';
 
 /** 'true'/'false' string de query -> boolean. z.coerce.boolean trata '' como false y todo lo demás true, inservible acá. */
-const booleanQuery = z.preprocess(
+export const booleanQuery = z.preprocess(
   (v) => (v === 'true' ? true : v === 'false' ? false : v),
   z.boolean(),
 );

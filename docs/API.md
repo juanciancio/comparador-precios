@@ -52,6 +52,7 @@ Detalle completo, schemas y ejemplos en **`/docs`**. Resumen:
 | `GET` | `/products/:ean/price-history` | Histórico de vigencias (SCD-2). Filtros: `retailer`, `from`, `to`. |
 | `POST` | `/products/:ean/refresh` | Refresh on-demand contra los retailers (TTL comunitario, ver nota abajo). |
 | `GET` | `/search` | Búsqueda por nombre/marca (multi-término, ILIKE). Requiere `q` (≥2 chars). |
+| `GET` | `/search/facets` | Marcas + conteo dentro de un scope, para el sidebar de filtros. Mismos filtros de scope que `/search` y `/products` (`q`, `category_top`, `only_matched`), contados **antes** del filtro de marca. Filtros propios: `brand_query`, `limit` (max 50). |
 | `GET` | `/compare` | Comparación cross-retailer por EAN. Excluye marca "Genérico". Filtros: `brand`, `category`, `min_diff_pct`, `cheaper_at`, `sort_by`. |
 | `GET` | `/compare/stats` | Estadísticas globales del match (histograma de \|diff%\|, quién es más barato, exclusivos). |
 | `GET` | `/categories` | Categorías con conteo de productos (cacheado 5 min). |

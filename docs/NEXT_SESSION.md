@@ -11,11 +11,11 @@
   Actions (`daily-scrape.yml`, 04:00 ART) + health check semanal. Se alimenta solo.
 - **Fase 3.A COMPLETA (14/07/2026) — API HTTP (NestJS):** montada en el mismo repo
   del scraper. **Lista para deploy; target decidido: Fly.io, región `gru`.**
-  - **11 endpoints** funcionando (Health, Products ×5, Search, Compare ×2,
+  - **12 endpoints** funcionando (Health, Products ×5, Search ×2, Compare ×2,
     Categories, Brands).
-  - **72 tests de integración** (Vitest + supertest, DB real) verdes: `pnpm test:api`.
+  - **91 tests de integración** (Vitest + supertest, DB real) verdes: `pnpm test:api`.
     Más 25 unit del scraper: `pnpm test:unit`.
-  - **OpenAPI pulida** (`/docs`): 11/11 endpoints con example y ≥2 response schemas.
+  - **OpenAPI pulida** (`/docs`): 12/12 endpoints con example y ≥2 response schemas.
   - Global exception filter (errores unificados + `trace_id`, 500 sanitizados) y
     timing interceptor (log estructurado + header `x-response-time-ms`).
   - **Dockerfile multi-stage** probado (node:20-alpine, runtime SWC sin build step,
@@ -203,7 +203,7 @@ saber cuándo dejan de ser aceptables — no revisitarlos antes.
 
 ---
 
-## Endpoints y params agregados hoy (14/07/2026)
+## Endpoints y params agregados el 14/07/2026
 
 Un endpoint nuevo y tres cambios de params. Todos con tests de integración.
 
@@ -213,6 +213,66 @@ Un endpoint nuevo y tres cambios de params. Todos con tests de integración.
 | **`sort_by` / `sort_dir` en `/search`** | Alinea `/search` con `/products` (mismos valores; no hay `relevance` porque sin FTS no hay ranking). | `d91de1e` |
 | **`brand` multi-valor** | En `/products` y `/search`. Repetible, OR entre valores: `?brand=Natura&brand=Cocinero`. | `d96a899` |
 | **`category_top`** | En `/products` y `/search`. Match exacto contra el departamento top-level, repetible, OR entre valores. **Depreca `category`** (substring inseguro: `?category=Limpieza` trae 867 productos de fuera de `/Limpieza/`). Ver `docs/analysis/top-levels-2026-07-14.md`. | `3a55e5e` |
+
+---
+
+## Endpoints agregados hoy (15/07/2026)
+
+### `GET /search/facets` — facets de marca para el sidebar
+
+Alimenta el sidebar de filtros de `/buscar?q=...` y `/categoria/[slug]` en la PWA.
+Antes no había forma de obtener estos contadores: `/brands` es global y no se
+scopea, y el frontend midió que juntarlos client-side vía paginación tomaba ~3.4s
+y 19 requests para Almacén.
+
+Params: `q` (opcional, ≥2 chars), `category_top` (repetible), `only_matched`,
+`brand_query` (nuevo, filtra marcas por substring), `limit` (def 10, max 50).
+Respuesta: `{ brands: [{ name, count }] }`. **No acepta el `category` deprecado**
+— es endpoint nuevo, no hay backwards-compat que sostener.
+
+**La invariante de scope es la razón de ser del diseño.** Los counts se calculan
+sobre exactamente el mismo conjunto de productos que devolverían `/search` o
+`/products` con esos params, **antes** del filtro de marca. Si divergieran, los
+números del sidebar mentirían respecto de la grilla de al lado. Se sostiene con
+código, no con disciplina: el recorte se traduce a SQL en un único
+`ProductsRepository.scopeSql()` que consumen `listProducts` (o sea `/products` y
+`/search`) y `brandFacets`. Los términos de `q` salen de un único `toTerms()` en
+`search.service.ts`. Hay 4 tests que suman los counts de un scope y exigen que den
+el `total` del listado; se verificaron con mutación (romper `only_matched` en los
+facets hace fallar 3 tests, incluido el de invariante).
+
+Facets **estáticos** a propósito: no se recalculan cuando el usuario tilda marcas.
+Eso es lo que permite ver "otras marcas disponibles en este scope" y que los
+números no se muevan al filtrar.
+
+**Genérico NO se excluye, ni siquiera con `only_matched=true`** (decisión de Juan,
+15/07/2026). La regla dura del proyecto aplica a comparaciones de precio
+cross-retailer (`/compare`, `matched_count`, `recent-changes`); `only_matched` solo
+filtra por disponibilidad en ≥2 cadenas y nunca la excluyó. Excluirla en los facets
+rompería la invariante contra `/products?only_matched=true`, que sí devuelve los 149
+productos catchall (109 `Generico` + 40 `Genérico`). **Pendiente:** hay una
+discusión abierta sobre si `only_matched` *debería* excluir marcas catchall — es
+semánticamente raro que las incluya —, pero es cambio de scope de `/products` y
+`/search`. Tratar en sesión aparte **antes de Fase B4**.
+
+Counts observados al implementar (spot-check):
+
+| scope | productos | marcas | top 5 |
+| --- | --- | --- | --- |
+| `q=leche` | 412 | 125 | La Serenísima 45, Carrefour 36, Milka 17, Gadnic 15, Las Tres Niñas 15 |
+| `category_top=Almacén` | 1843 | 245 | Carrefour 317, Genérico 86, Alicante 65, La Parmesana 60, Knorr 53 |
+
+Suma de counts = total del scope en ambos (412 y 1843). Coincide con lo que midió
+el frontend.
+
+**Sin índices nuevos.** Medido con `EXPLAIN ANALYZE`: sin scope 11ms,
+`category_top=Almacén` 14ms, Almacén + `only_matched` 23ms. El único que pasa de
+100ms es el scope con `q` (**137ms** para `q=leche`): el `ILIKE '%term%'` con
+wildcard inicial no puede usar btree y hace Seq Scan sobre las 34.965 filas de
+`products`. **No es deuda nueva** — es el mismo costo que `/search` ya paga hoy, y
+se resuelve junto con el FTS pendiente (ver backlog): un `tsvector` + GIN, o un
+índice trigram `USING gin (name_canonical gin_trgm_ops)` si se quiere atacar solo
+la latencia sin tocar el ranking. **No aplicado**, a la espera de revisión.
 
 ---
 
