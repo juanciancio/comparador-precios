@@ -15,9 +15,10 @@ export class SearchService {
       brand: query.brand,
       category: query.category,
       onlyMatched: query.only_matched,
-      // Sin FTS no hay ranking real; orden estable por nombre.
-      sortBy: 'name',
-      sortDir: 'asc',
+      // Sin FTS no hay ranking real, así que no hay orden por relevancia: el
+      // default sigue siendo nombre asc (lo fija el DTO).
+      sortBy: query.sort_by,
+      sortDir: query.sort_dir,
       terms,
     };
     const { data, total } = await this.repo.listProducts(filters);

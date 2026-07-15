@@ -23,6 +23,14 @@ export const SearchQuerySchema = z.object({
     .optional()
     .default(false)
     .describe('Si true, solo productos comparables en ≥2 cadenas.'),
+  // Mismos valores que /products: /search reusa su repositorio (listProducts),
+  // así que el orden se resuelve con el mismo ORDER BY. No hay 'relevance':
+  // sin FTS no existe ranking que ordenar.
+  sort_by: z
+    .enum(['name', 'brand', 'first_seen', 'last_seen'])
+    .default('name')
+    .describe('Campo de ordenamiento.'),
+  sort_dir: z.enum(['asc', 'desc']).default('asc').describe('Dirección del ordenamiento.'),
 });
 export class SearchQueryDto extends createZodDto(SearchQuerySchema) {}
 

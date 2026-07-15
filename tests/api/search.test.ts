@@ -50,4 +50,71 @@ describe('GET /search', () => {
     expect(res.body.data).toEqual([]);
     expect(res.body.pagination.total).toBe(0);
   });
+
+  // El orden lo resuelve listProducts (mismo repo que /products); acá se cubre
+  // que el query param llegue hasta el ORDER BY y no quede hardcodeado.
+  describe('sort_by / sort_dir', () => {
+    it('sort_by=name&sort_dir=asc ordena alfabéticamente', async () => {
+      const res = await request(http())
+        .get('/search')
+        .query({ q: 'aceite', limit: 20, sort_by: 'name', sort_dir: 'asc' });
+      expect(res.status).toBe(200);
+      expect(res.body.data.length).toBeGreaterThan(1);
+      const names: string[] = res.body.data.map((p: { name: string }) => p.name);
+      expect(names).toEqual([...names].sort((a, b) => a.localeCompare(b, 'es')));
+    });
+
+    it('sort_by=name&sort_dir=desc invierte el orden', async () => {
+      const asc = await request(http())
+        .get('/search')
+        .query({ q: 'aceite', limit: 20, sort_by: 'name', sort_dir: 'asc' });
+      const desc = await request(http())
+        .get('/search')
+        .query({ q: 'aceite', limit: 20, sort_by: 'name', sort_dir: 'desc' });
+      expect(desc.status).toBe(200);
+      const ascNames = asc.body.data.map((p: { name: string }) => p.name);
+      const descNames = desc.body.data.map((p: { name: string }) => p.name);
+      expect(descNames).not.toEqual(ascNames);
+      expect(descNames[0]).not.toBe(ascNames[0]);
+    });
+
+    it('sort_by=last_seen&sort_dir=desc ordena por lastSeenAt descendente', async () => {
+      const res = await request(http())
+        .get('/search')
+        .query({ q: 'aceite', limit: 20, sort_by: 'last_seen', sort_dir: 'desc' });
+      expect(res.status).toBe(200);
+      expect(res.body.data.length).toBeGreaterThan(1);
+      const seen: number[] = res.body.data.map((p: { lastSeenAt: string }) =>
+        new Date(p.lastSeenAt).getTime(),
+      );
+      for (let i = 1; i < seen.length; i++) {
+        expect(seen[i - 1]).toBeGreaterThanOrEqual(seen[i]!);
+      }
+    });
+
+    it('sin sort_by usa el default: mismo resultado que sort_by=name&sort_dir=asc', async () => {
+      const def = await request(http()).get('/search').query({ q: 'aceite', limit: 10 });
+      const explicit = await request(http())
+        .get('/search')
+        .query({ q: 'aceite', limit: 10, sort_by: 'name', sort_dir: 'asc' });
+      expect(def.status).toBe(200);
+      expect(def.body.data.map((p: { ean: string }) => p.ean)).toEqual(
+        explicit.body.data.map((p: { ean: string }) => p.ean),
+      );
+    });
+
+    it('400 con sort_by inválido', async () => {
+      const res = await request(http())
+        .get('/search')
+        .query({ q: 'aceite', sort_by: 'price' });
+      expect(res.status).toBe(400);
+    });
+
+    it('400 con sort_dir inválido', async () => {
+      const res = await request(http())
+        .get('/search')
+        .query({ q: 'aceite', sort_dir: 'sideways' });
+      expect(res.status).toBe(400);
+    });
+  });
 });
