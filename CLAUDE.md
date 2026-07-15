@@ -587,7 +587,7 @@ Estas son decisiones que **NO** debe tomar Claude Code solo. Si el trabajo requi
 4. **Dónde correr los cronjobs.** Decidido en post-Fase 2: **GitHub Actions** con schedule diario. Motivos: gratis, versionado con el código, notificación por email automática al owner en fallos, no requiere infra propia. Alternativas descartadas por complejidad (VPS propio, Supabase edge functions con time triggers). Se revisita solo si GitHub Actions da problemas de rate-limiting con VTEX (los runners están en US-East).
 5. **Estrategia de bloqueos futuros.** Si Carrefour empieza a bloquear con Cloudflare, se evalúa proxies residenciales. No es problema hoy.
 6. **Estrategia de outliers en el frontend/app.** En Fase 3 hay que implementar `suspicion_score` calculado por producto matcheado (reglas: `diff_pct > 200%`, `precio absoluto > $500k`, mismatch de palabras clave pack/unidad). Por default, ocultar `suspicion_score` alto; toggle para power users.
-7. **Target de deploy de la API.** Fly.io vs Railway vs Render. Pendiente para una sesión futura dedicada. El Dockerfile multi-stage queda listo en Fase E de 3.A.
+7. **Target de deploy de la API.** ~~Fly.io vs Railway vs Render.~~ **CERRADA 14/07/2026: Fly.io, región `gru`** (São Paulo, la más cercana a AR). El Dockerfile multi-stage quedó listo en Fase E de 3.A. Falta ejecutar el deploy; envs mínimas en `docs/API.md`.
 8. **Índices adicionales para la API.** Si Fase B (Products) revela queries frecuentes sin índice (especialmente `only_matched` con JOIN a `price_history` de ambos retailers), se agrega migración `006_indices_for_api.sql`. Postponed hasta ver el patrón real de queries con `EXPLAIN ANALYZE`.
 
 ---

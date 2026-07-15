@@ -10,10 +10,11 @@
 - **Fase 2 cerrada:** scrapers Masonline + Carrefour en autopilot vía GitHub
   Actions (`daily-scrape.yml`, 04:00 ART) + health check semanal. Se alimenta solo.
 - **Fase 3.A COMPLETA (14/07/2026) — API HTTP (NestJS):** montada en el mismo repo
-  del scraper. **Lista para deploy.**
+  del scraper. **Lista para deploy; target decidido: Fly.io, región `gru`.**
   - **11 endpoints** funcionando (Health, Products ×5, Search, Compare ×2,
     Categories, Brands).
-  - **49 tests de integración** (Vitest + supertest, DB real) verdes: `pnpm test:api`.
+  - **72 tests de integración** (Vitest + supertest, DB real) verdes: `pnpm test:api`.
+    Más 25 unit del scraper: `pnpm test:unit`.
   - **OpenAPI pulida** (`/docs`): 11/11 endpoints con example y ≥2 response schemas.
   - Global exception filter (errores unificados + `trace_id`, 500 sanitizados) y
     timing interceptor (log estructurado + header `x-response-time-ms`).
@@ -53,7 +54,8 @@ Fase 3.A (Fases A→E) está **completa**. Lo que sigue:
 
 **Inmediato — Deploy de la API:**
 
-- Elegir target: **Fly.io vs Railway vs Render** (decisión abierta #7 en `CLAUDE.md`).
+- Target **decidido: Fly.io, región `gru`** (São Paulo, la más cercana a AR). Cierra
+  la decisión abierta #7 de `CLAUDE.md`.
 - El `Dockerfile` ya está probado y funcionando (build + run + healthcheck OK).
 - Envs mínimas en el target: `DATABASE_URL` (Session pooler de Supabase),
   `NODE_ENV=production`, `CORS_ORIGINS` con el dominio de la PWA. Ver tabla en
@@ -169,16 +171,82 @@ Si 500 usuarios abren el mismo producto en 10 segundos (por ejemplo, un influenc
 
 ### Deuda técnica identificada (no bloqueante)
 
-- **`loadRun` precarga catálogo completo del retailer en cada refresh** 
-  (~12-26k filas), aunque el refresh toque un solo producto. 
-  O(catálogo) por llamada. Con TTL comunitario 60s el volumen está 
-  acotado; no impacta MVP. Cuando la mediana de duración del endpoint 
-  supere 500ms o el CPU de Supabase pase 60%, refactorizar a un path 
-  `loadRunForSingleEan(ean)` que hace SELECT puntual en vez de precarga.
-  Detectado en Fase B (14/07/2026).
+Tres ítems, ninguno bloquea el deploy. Los tres tienen un umbral explícito para
+saber cuándo dejan de ser aceptables — no revisitarlos antes.
+
+- **`category_path` es volátil entre corridas.** Vive en `products` (por EAN, no
+  por retailer) y el load lo pisa sin COALESCE: refleja el último retailer que
+  procesó el producto, no un consenso. **El detalle vive en `CLAUDE.md` → "Nota
+  sobre volatilidad de category_path"** (incluye el contraste con `brand`, que en
+  el mismo `ON CONFLICT` tiene la semántica opuesta). Impacto hoy: bajo, los
+  filtros andan porque filtran contra el path presente. Umbral: cualquier
+  agregación o join que asuma "categoría estable por producto" va a driftear entre
+  corridas del scraper. Regla práctica al medir por cadena: hacerlo sobre productos
+  **exclusivos** de esa cadena. Detectado 14/07/2026 en el análisis de top-levels.
+
+- **Índice sobre `valid_to IS NOT NULL` deliberadamente NO agregado.** El driver de
+  `/products/recent-changes` hace Seq Scan sobre las filas cerradas (5.611 de
+  44.218 = 12,7%). A esa selectividad el planner elige seq scan y tiene razón, y un
+  índice parcial sobre ese predicado se volvería *menos* selectivo con el tiempo:
+  la proporción de filas cerradas tiende a 100%. La query default corre en 131ms
+  contra un target de 300ms. Umbral: el driver escala lineal con la historia (~5k
+  filas/día ⇒ ~1,8M al año); cuando la mediana del endpoint pase 300ms, la salida
+  es indexar **por recencia del cambio**, no por `valid_to IS NOT NULL`. Ver
+  "Decisiones de recent-changes".
+
+- **`loadRun` precarga catálogo completo del retailer en cada refresh**
+  (~12-26k filas), aunque el refresh toque un solo producto. O(catálogo) por
+  llamada. Con TTL comunitario 60s el volumen está acotado; no impacta MVP.
+  Umbral: cuando la mediana de duración del endpoint supere 500ms o el CPU de
+  Supabase pase 60%, refactorizar a un path `loadRunForSingleEan(ean)` que hace
+  SELECT puntual en vez de precarga. Detectado en Fase B (14/07/2026).
+
 ---
 
-## Endpoints faltantes (backlog)
+## Endpoints y params agregados hoy (14/07/2026)
+
+Un endpoint nuevo y tres cambios de params. Todos con tests de integración.
+
+| Cambio | Qué | Commit |
+| --- | --- | --- |
+| **`GET /products/recent-changes`** | Endpoint nuevo. Productos con cambio de precio en las últimas N horas, para la home de la PWA. Params: `limit` (def 8, max 30), `hours` (def 48, max 168), `min_diff_pct`. Mismo envelope que `GET /products`. | `15cd069` |
+| **`sort_by` / `sort_dir` en `/search`** | Alinea `/search` con `/products` (mismos valores; no hay `relevance` porque sin FTS no hay ranking). | `d91de1e` |
+| **`brand` multi-valor** | En `/products` y `/search`. Repetible, OR entre valores: `?brand=Natura&brand=Cocinero`. | `d96a899` |
+| **`category_top`** | En `/products` y `/search`. Match exacto contra el departamento top-level, repetible, OR entre valores. **Depreca `category`** (substring inseguro: `?category=Limpieza` trae 867 productos de fuera de `/Limpieza/`). Ver `docs/analysis/top-levels-2026-07-14.md`. | `3a55e5e` |
+
+---
+
+## Endpoints y params pendientes (backlog)
+
+Nada de esto bloquea el deploy ni la Fase 3.B. Ordenados por cuán bloqueados están.
+
+- **`sort_by=price` en `/products` y `/search` — BLOQUEADO, requiere decisión de
+  producto.** La semántica es ambigua: un producto tiene hasta dos precios vigentes
+  (uno por cadena), así que "ordenar por precio" puede significar el más barato, el
+  de una cadena elegida, o el promedio. Y los productos de una sola cadena tendrían
+  que ordenarse contra los de dos. **No implementar hasta que Juan defina la
+  semántica**; no hay default obvio que no sorprenda a alguien.
+
+- **`sort_by=diff_pct_abs` en `/products` y `/search`.** Hoy solo existe en
+  `/compare` (junto con su alias `diff`). Llevarlo a `/products` implica decidir qué
+  pasa con los no-matcheados, que no tienen diff: excluirlos (como hace `/compare`)
+  cambiaría el universo del listado, que es justamente lo que `/products` no hace.
+  Emparentado con el punto anterior — conviene resolver los dos juntos.
+
+- **FTS en `/search`.** Hoy es multi-término con `ILIKE '%term%'` (AND entre
+  términos, OR entre `name` y `brand`). Sin índice de texto no hay ranking, por eso
+  `sort_by` no ofrece `relevance` y el default es nombre asc. Limitación conocida y
+  verificada: "coca light" no matchea sinónimos. Cuando se implemente, `tsvector` +
+  GIN y ahí sí agregar `sort_by=relevance`.
+
+- **`suspicion_score`.** Decisión abierta #6 de `CLAUDE.md`; se implementa en el
+  frontend. **Los fixtures ya están documentados** — ver "Casos de estudio para
+  suspicion_score" al final de este archivo: el caso ancla (EAN `7896015519223`,
+  brand "100 Pipers" sobre una pasta Sensodyne), 9 mismatches más de regresión, los
+  4 tipos de falso positivo que hay que esquivar, y la fragmentación de marca (116
+  pares) con la advertencia de que Levenshtein solo no alcanza.
+
+### Ya implementados (histórico)
 
 - ~~**GET /products/recent-changes?limit=N**~~ — **IMPLEMENTED 14/07/2026.**
   Params: `limit` (default 8, max 30), `hours` (default 48, max 168),
@@ -312,3 +380,87 @@ mercado, score BAJO) y los outliers del reporte cross-retailer en `LATEST_RUN.md
   marcas genuinamente distintas — `Antex`/`Intex`, `Bosca`/`Bosch`,
   `Bimbi`/`Bimbo`, `Arcoa`/`Arcor`. La distancia de edición sola no alcanza; hace
   falta cruzarla con categoría o con presencia de la marca en el name.
+
+---
+
+## Cómo retomar este repo
+
+Para futuras instancias que arranquen frío en este repo.
+
+### Antes de tocar nada: confirmá en qué repo estás
+
+El proyecto vive en **dos repos con sesiones separadas**, y comparten vocabulario
+(fases, "B3.1", endpoints):
+
+- `olavarria-comparador-precios` — **este**: scraper + API. Backend.
+- `chango-web` — PWA Next.js. Frontend.
+
+Un pedido puede llegar dirigido a la instancia equivocada. Pasó dos veces el
+14/07/2026: un pedido de dedup del frontend llegó acá, y trabajo hecho por otra
+sesión del backend se atribuyó a esta. **Corré `git log --oneline -5` y `pwd`
+antes de aceptar la premisa de un pedido**, sobre todo si menciona trabajo previo
+que no está en tu contexto. Si el trabajo no está, decilo en vez de reconstruirlo
+a ciegas.
+
+Corolario: **no toques `chango-web` desde acá**. Regenerar sus tipos (`pnpm
+api:sync`) le corresponde a la sesión del frontend cuando consuma la API.
+
+### Setup
+
+```bash
+pnpm install
+cp .env.example .env        # completar DATABASE_URL (Session pooler de Supabase)
+pnpm db:migrate             # idempotente
+```
+
+### Los dos typechecks tienen que estar verdes
+
+```bash
+pnpm typecheck   # scraper — el tsconfig base EXCLUYE src/api
+pnpm api:build   # API — tsconfig.api.json, con decoradores
+```
+
+La asimetría es deliberada, no la "simplifiques": el base no puede tipar los
+decoradores de Nest sin `experimentalDecorators`. Ver `CLAUDE.md` → "Config
+asimétrica de TS".
+
+### Tests
+
+```bash
+pnpm test:api    # 72 integration, DB real de Supabase, CERO mocks
+pnpm test:unit   # 25 unit del scraper (normalización, parsing)
+```
+
+Los de API corren contra la DB real a propósito. Si un test falla por conteos
+(totales, cantidad de resultados), **primero revisá si la data cambió** — el
+scraper corre diario a las 04:00 ART y mueve precios y catálogo. No todo fallo es
+regresión.
+
+### Correr la API
+
+```bash
+pnpm api:dev     # watch, http://localhost:3100 — docs en /docs, spec en /docs-json
+```
+
+Puerto 3100, no 3000 (colisiona con frontends y con un túnel SSH de Juan).
+
+### Dónde vive cada cosa
+
+- **`CLAUDE.md` — fuente de verdad de decisiones.** Reglas, invariantes,
+  anti-patterns, stack. Si vas a escribir una regla, va acá.
+- **`docs/NEXT_SESSION.md` (este archivo) — estado y evidencia.** Números medidos,
+  deuda con su umbral, casos de estudio. Si vas a escribir un número o un caso, va
+  acá. **Regla anti-drift:** cuando una regla y su evidencia se separan, la regla va
+  a `CLAUDE.md` y acá queda un puntero. No dupliques el texto en los dos.
+- **`docs/analysis/*.md` — snapshots fechados**, regenerables desde la DB. No se
+  mantienen a mano; cada uno lleva la query que lo produce.
+- **`docs/API.md`** — setup, endpoints, env vars, deploy.
+- **`LATEST_RUN.md`** — estado operativo diario del scraper.
+
+### Cómo trabaja Juan
+
+Ver `CLAUDE.md` → "Cómo trabajar con Juan". En corto: es el arquitecto, vos
+ejecutás. Preguntá antes de asumir, trabajá en pasos verificables, y **documentá la
+consecuencia, no solo el hecho** — el schema decía `-- último path visto` sobre
+`category_path` desde el día uno y aun así se cometió el error que esa nota debería
+haber evitado, porque nunca se escribió qué se seguía de ahí.
