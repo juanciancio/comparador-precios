@@ -228,3 +228,87 @@ Si 500 usuarios abren el mismo producto en 10 segundos (por ejemplo, un influenc
   cambio y no filtra por comparabilidad: qué mostrar es responsabilidad del
   consumidor. El frontend pasa `min_diff_pct=N` (que ya exige ambas cadenas)
   cuando la home quiera solo comparables. No se le pone `only_matched` por default.
+
+---
+
+## Casos de estudio para suspicion_score
+
+Casos verificados a mano, para usar como fixtures cuando se implemente el score
+(decisión abierta #6 en `CLAUDE.md`). Precedentes previos, todavía sin curar acá:
+**Motorola G67** (ver "Aprendizajes operativos" arriba — diferencia real de
+mercado, score BAJO) y los outliers del reporte cross-retailer en `LATEST_RUN.md`
+(**Ilko** $4.3M, **Iael** 1325% diff, **Doble G** 300% diff, **H2oh!**).
+
+- **Brand mismatch con nombre del producto**. Verificado 14/07/2026 durante Fase
+  B3.1 del frontend. Producto con `brand="100 Pipers"` (marca de whisky) pero
+  `name="Crema Dental Sensodyneext Fresh Blanqueamiento"`. Es error de catálogo
+  del retailer (probablemente copy-paste incorrecto de brand al cargar el SKU).
+  Detectable con fuzzy match brand vs primeras 2-3 palabras del name — si el
+  Jaccard similarity o Levenshtein normalizado cae por debajo de un umbral, señal
+  fuerte de data quality issue.
+
+  **Score sugerido: ALTO (100+ pts).** Este tipo de mismatch afecta agregaciones
+  downstream: cuando la home aplique dedup por marca, dos productos Sensodyne van
+  a pasar el filtro porque el sistema los cuenta como marcas distintas.
+
+  **EAN del caso: `7896015519223`.** Presente en ambas cadenas, así que el score
+  se puede testear sobre un producto matcheado:
+  - masonline: `Crema Dental Sensodyneext Fresh Blanqueamiento 50gr` ← de acá sale
+    el `name_canonical` (el load hace `COALESCE(products.brand, EXCLUDED.brand)`:
+    gana el primer retailer que lo vio, y nunca se pisa).
+  - carrefour: `Pasta dental Sensodyne blanqueador extra fresh 50 g.`
+
+  Query de reproducción:
+
+  ```sql
+  SELECT ean, brand, name_canonical FROM products
+  WHERE name_canonical ILIKE '%Sensodyne%' AND brand ILIKE '%100 Pipers%';
+  ```
+
+  **La marca `100 Pipers` es un basurero, no un caso aislado:** tiene exactamente
+  2 productos y ninguno es whisky. El otro es `7794757267108` — *Tempera Pomo
+  250gr Blanco* (masonline). No existe ningún whisky 100 Pipers en el catálogo.
+  Fixture útil: el score tiene que marcar los dos.
+
+- **Otros brand mismatch encontrados en el mismo barrido** (14/07/2026, sobre los
+  34k productos). Sirven como set de regresión — todos deberían dar score ALTO:
+
+  | EAN | brand | name |
+  | --- | --- | --- |
+  | `309970215798` | IMAGI KIDZ | Labial Líquido **Revlon** Colorstay Matte 005 |
+  | `7802107000876` | Bárbara | Cerveza **Kunstmann** Ipa 473 ml |
+  | `7613036961448` | Starburst | **Starbucks** Nespresso Colombia 10 uni |
+  | `7798456650124` | Vitamet | Suplemento Dietario **Granger** Pancakes Proteicos |
+  | `7896359015061` | Easy Find | Hermetico **San Remo** Flor Redondo Chico 480ml |
+  | `7790715011806` | Colorin | **Comodín** Enduido Interior 1 L |
+  | `7798282170131` | MIA CASA | Papel Aluminio **Colonial** 5 M |
+  | `7797750009270` | Whirlpool | Cocina a Gas **Eslabón de Lujo** 56 CM |
+  | `7891112203693` | Tramontina | **IPANEMA** juego cubiertos 24 piezas Negro |
+
+  **Falsos positivos que el score va a tener que esquivar** (encontrados en el
+  mismo barrido, NO son mismatch): marca-licencia (`Disney` → "Short *Mickey*"),
+  sub-marca de marca propia (`Carrefour` → "Palmeritas *El Mercado*"), revendedor
+  multi-marca (`Gadnic` → "Handy *Baofeng*"), y palabras del name que además son
+  marcas del catálogo (`Worksite` → "Destornillador Punta *Philips*", donde
+  Philips es el tipo de punta, no la marca).
+
+- **Fragmentación de marca (misma marca escrita de dos formas).** No es lo mismo
+  que el mismatch, pero **rompe la home por la misma vía** — dedup por marca las
+  cuenta como distintas — así que conviene atacarlas juntas. Hay **116 pares** que
+  colapsan al normalizar caso/acento/puntuación: `Aguila`/`Águila` (41 y 7),
+  `Atma`/`ATMA` (20 y 89), `Ayudin`/`Ayudín` (39 y 22), `Dermaglos`/`Dermaglós`
+  (41 y 6), `Aston`/`ASTON` (171 y 11), `Bel Gioco`/`Belgioco` (15 y 8),
+  `7 Up`/`7up` (2 y 10), `Ga.Ma`/`Gama` (11 y 24), `Fisher Price`/`Fisher-Price`.
+
+  Esto **no lo cubre `normalizeBrand`** (`src/pipeline/transform.ts`), que es
+  deliberadamente conservador: trim, colapso de espacios y strip de puntuación
+  final, sin tocar caso ni acentos. Es decisión vigente, no bug.
+
+  El precedente **H2oh!** cae acá y muestra el límite: el retailer carga
+  `brand="H20!"` (con cero) y `name="Agua Saborizada H2oh! Sabor Naranja"`. Un
+  umbral de longitud mínima ingenuo (>=6 chars) lo dejaría pasar.
+
+  **Cuidado con Levenshtein solo:** a distancia 1 aparecen 56 pares, y muchos son
+  marcas genuinamente distintas — `Antex`/`Intex`, `Bosca`/`Bosch`,
+  `Bimbi`/`Bimbo`, `Arcoa`/`Arcor`. La distancia de edición sola no alcanza; hace
+  falta cruzarla con categoría o con presencia de la marca en el name.
