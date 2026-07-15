@@ -135,4 +135,35 @@ describe('GET /search', () => {
       expect(res.status).toBe(400);
     });
   });
+
+  // /search comparte ListFilters con /products, así que el filtro es el mismo
+  // código; se cubre acá que esté cableado, no la semántica (ya cubierta allá).
+  describe('category_top', () => {
+    it('acota la búsqueda al departamento exacto', async () => {
+      const res = await request(http())
+        .get('/search')
+        .query({ q: 'limpiador', category_top: 'Limpieza', limit: 50 });
+      expect(res.status).toBe(200);
+      expect(res.body.data.length).toBeGreaterThan(0);
+      for (const p of res.body.data) {
+        expect(p.categoryPath?.startsWith('/Limpieza/')).toBe(true);
+      }
+    });
+
+    it('multi-valor: no devuelve departamentos fuera de la lista', async () => {
+      const res = await request(http())
+        .get('/search')
+        .query({ q: 'limpiador', category_top: ['Limpieza', 'Automotor'], limit: 50 });
+      expect(res.status).toBe(200);
+      for (const p of res.body.data) {
+        const top = p.categoryPath?.split('/')[1];
+        expect(['Limpieza', 'Automotor']).toContain(top);
+      }
+    });
+
+    it('400 con category_top vacío', async () => {
+      const res = await request(http()).get('/search').query({ q: 'aceite', category_top: '' });
+      expect(res.status).toBe(400);
+    });
+  });
 });

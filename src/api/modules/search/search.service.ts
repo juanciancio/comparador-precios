@@ -13,6 +13,7 @@ export class SearchService {
       limit: query.limit,
       offset: query.offset,
       brand: query.brand,
+      categoryTop: query.category_top,
       category: query.category,
       onlyMatched: query.only_matched,
       // Sin FTS no hay ranking real, así que no hay orden por relevancia: el

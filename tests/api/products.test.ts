@@ -85,6 +85,102 @@ describe('GET /products', () => {
     });
   });
 
+  describe('category_top (match exacto contra el departamento)', () => {
+    it('devuelve solo productos cuyo path arranca con /Limpieza/', async () => {
+      const res = await request(http())
+        .get('/products')
+        .query({ category_top: 'Limpieza', limit: 100 });
+      expect(res.status).toBe(200);
+      expect(res.body.data.length).toBeGreaterThan(0);
+      for (const p of res.body.data) {
+        expect(p.categoryPath?.startsWith('/Limpieza/')).toBe(true);
+      }
+    });
+
+    // El bug que motivó el param: 13 top-levels están contenidos dentro de otro,
+    // así que el substring de ?category= arrastra departamentos ajenos.
+    // Ver docs/analysis/top-levels-2026-07-14.md.
+    it('no arrastra /Automotor/, que el substring de ?category= sí trae', async () => {
+      const [exact, substring] = await Promise.all([
+        request(http()).get('/products').query({ category_top: 'Limpieza', limit: 100 }),
+        request(http()).get('/products').query({ category: 'Limpieza', limit: 100 }),
+      ]);
+      expect(exact.status).toBe(200);
+      expect(substring.status).toBe(200);
+
+      const topLevelOf = (p: { categoryPath: string | null }) =>
+        p.categoryPath?.split('/')[1];
+
+      // category_top: ni un solo producto fuera del departamento.
+      const exactTops = new Set(exact.body.data.map(topLevelOf));
+      expect(exactTops).toEqual(new Set(['Limpieza']));
+
+      // category: el universo es estrictamente mayor, y son falsos positivos reales.
+      expect(substring.body.pagination.total).toBeGreaterThan(
+        exact.body.pagination.total,
+      );
+      const contaminated = await request(http())
+        .get('/products')
+        .query({ category: 'Limpieza', limit: 100, sort_by: 'brand', sort_dir: 'desc' });
+      const foreign = contaminated.body.data.filter(
+        (p: { categoryPath: string | null }) => !p.categoryPath?.startsWith('/Limpieza/'),
+      );
+      expect(foreign.length).toBeGreaterThan(0);
+    });
+
+    it('multi-valor: el total es la unión de los departamentos', async () => {
+      const [a, b, both] = await Promise.all([
+        request(http()).get('/products').query({ category_top: 'Limpieza', limit: 1 }),
+        request(http()).get('/products').query({ category_top: 'Bebidas', limit: 1 }),
+        request(http())
+          .get('/products')
+          .query({ category_top: ['Limpieza', 'Bebidas'], limit: 1 }),
+      ]);
+      // Departamentos disjuntos por construcción (un path tiene un solo top-level).
+      expect(both.body.pagination.total).toBe(
+        a.body.pagination.total + b.body.pagination.total,
+      );
+    });
+
+    it('multi-valor: devuelve productos de ambos departamentos y de ningún otro', async () => {
+      const res = await request(http())
+        .get('/products')
+        .query({ category_top: ['Limpieza', 'Bebidas'], limit: 100, sort_by: 'brand' });
+      expect(res.status).toBe(200);
+      const tops = new Set(
+        res.body.data.map((p: { categoryPath: string | null }) => p.categoryPath?.split('/')[1]),
+      );
+      for (const t of tops) expect(['Limpieza', 'Bebidas']).toContain(t);
+    });
+
+    it('coexiste con brand: aplica ambos filtros (AND)', async () => {
+      const res = await request(http())
+        .get('/products')
+        .query({ category_top: 'Limpieza', brand: 'Ayudín', limit: 50 });
+      expect(res.status).toBe(200);
+      expect(res.body.data.length).toBeGreaterThan(0);
+      for (const p of res.body.data) {
+        expect(p.brand).toBe('Ayudín');
+        expect(p.categoryPath?.startsWith('/Limpieza/')).toBe(true);
+      }
+    });
+
+    it('400 con category_top vacío', async () => {
+      const res = await request(http()).get('/products').query({ category_top: '' });
+      expect(res.status).toBe(400);
+    });
+
+    it('un departamento inexistente devuelve vacío, no rompe', async () => {
+      const res = await request(http())
+        .get('/products')
+        .query({ category_top: 'DepartamentoQueNoExiste' });
+      expect(res.status).toBe(200);
+      expect(res.body.data).toHaveLength(0);
+      expect(res.body.pagination.total).toBe(0);
+    });
+  });
+
+  // Deprecado a favor de category_top, pero sigue siendo contrato público.
   it('filtra por category (substring case-insensitive)', async () => {
     const res = await request(http()).get('/products').query({ category: 'bebidas', limit: 20 });
     expect(res.status).toBe(200);

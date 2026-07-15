@@ -24,17 +24,37 @@ export const brandQuery = z
   .optional()
   .describe("Marca exacta a filtrar. Repetible. Ej: 'La Serenísima', o brand=Natura&brand=Cocinero");
 
+/**
+ * Departamento top-level exacto, repetible. Mismo patrón que `brandQuery`.
+ * Matchea contra `split_part(category_path, '/', 2)`, no por substring: hay 13
+ * top-levels contenidos dentro de otro (`Limpieza` ⊂ `Accesorios De Limpieza`,
+ * `Limpieza Automotor`, …), así que el substring de `category` trae falsos
+ * positivos. Ver `docs/analysis/top-levels-2026-07-14.md`.
+ */
+export const categoryTopQuery = z
+  .union([z.string().min(1), z.array(z.string().min(1)).nonempty()])
+  .transform((v) => (Array.isArray(v) ? v : [v]))
+  .optional()
+  .describe(
+    'Departamento top-level exacto (primer segmento de category_path). Repetible: ' +
+      'múltiples valores son OR entre sí. Case-sensitive — es la etiqueta cruda del ' +
+      'retailer, ver GET /categories para los valores válidos. ' +
+      'Ej: category_top=Limpieza, o category_top=Limpieza&category_top=Accesorios De Limpieza',
+  );
+
+export const CATEGORY_DEPRECATION =
+  'DEPRECATED: usar category_top que hace match exacto contra el departamento ' +
+  'top-level. category hace substring match sobre el path completo, lo cual genera ' +
+  'falsos positivos (ver docs/analysis/top-levels-* para contexto).';
+
 // ─── Query params ────────────────────────────────────────────────────────────
 
 export const ListProductsQuerySchema = z.object({
   limit: z.coerce.number().int().min(1).max(100).default(20).describe('Tamaño de página (1–100). Ej: 20'),
   offset: z.coerce.number().int().min(0).default(0).describe('Desplazamiento para paginar. Ej: 40'),
   brand: brandQuery,
-  category: z
-    .string()
-    .min(1)
-    .optional()
-    .describe("Substring case-insensitive contra category_path. Ej: 'Bebidas'"),
+  category_top: categoryTopQuery,
+  category: z.string().min(1).optional().describe(CATEGORY_DEPRECATION),
   only_matched: booleanQuery
     .optional()
     .default(false)

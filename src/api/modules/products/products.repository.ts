@@ -14,6 +14,9 @@ export interface ListFilters {
   offset: number;
   /** Marcas exactas; matchea cualquiera de ellas (OR). Vacío = sin filtro. */
   brand?: string[] | undefined;
+  /** Departamentos top-level exactos; matchea cualquiera (OR). Vacío = sin filtro. */
+  categoryTop?: string[] | undefined;
+  /** @deprecated Substring sobre el path completo; usar categoryTop. */
   category?: string | undefined;
   onlyMatched: boolean;
   sortBy: 'name' | 'brand' | 'first_seen' | 'last_seen';
@@ -104,6 +107,11 @@ export class ProductsRepository {
     const sql = this.sql;
     // .length, no truthiness: [] es truthy y filtraría por ninguna marca.
     const brandFilter = f.brand?.length ? sql`AND p.brand = ANY(${f.brand})` : sql``;
+    // Match exacto contra el primer segmento del path: category_path arranca con
+    // '/', así que split_part(..., '/', 1) es '' y el departamento es el 2.
+    const categoryTopFilter = f.categoryTop?.length
+      ? sql`AND split_part(p.category_path, '/', 2) = ANY(${f.categoryTop})`
+      : sql``;
     const categoryFilter = f.category
       ? sql`AND p.category_path ILIKE ${'%' + f.category + '%'}`
       : sql``;
@@ -134,14 +142,14 @@ export class ProductsRepository {
         p.first_seen_at, p.last_seen_at,
         ${this.retailerOffersSubquery()} AS retailers
       FROM products p
-      WHERE TRUE ${brandFilter} ${categoryFilter} ${matchedFilter} ${searchFilter}
+      WHERE TRUE ${brandFilter} ${categoryTopFilter} ${categoryFilter} ${matchedFilter} ${searchFilter}
       ORDER BY ${orderCol} ${orderDir} NULLS LAST, p.ean ASC
       LIMIT ${f.limit} OFFSET ${f.offset}
     `;
 
     const totalRows = await sql<{ total: number }[]>`
       SELECT COUNT(*)::int AS total FROM products p
-      WHERE TRUE ${brandFilter} ${categoryFilter} ${matchedFilter} ${searchFilter}
+      WHERE TRUE ${brandFilter} ${categoryTopFilter} ${categoryFilter} ${matchedFilter} ${searchFilter}
     `;
 
     return { data: rows.map(toProduct), total: totalRows[0]!.total };

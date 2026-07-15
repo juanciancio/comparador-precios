@@ -1,6 +1,11 @@
 import { createZodDto } from 'nestjs-zod';
 import { z } from 'zod';
-import { brandQuery, ProductSchema } from '../../products/dto/products.dto.ts';
+import {
+  brandQuery,
+  categoryTopQuery,
+  CATEGORY_DEPRECATION,
+  ProductSchema,
+} from '../../products/dto/products.dto.ts';
 
 const booleanQuery = z.preprocess(
   (v) => (v === 'true' ? true : v === 'false' ? false : v),
@@ -18,7 +23,8 @@ export const SearchQuerySchema = z.object({
   limit: z.coerce.number().int().min(1).max(100).default(20).describe('Tamaño de página (1–100).'),
   offset: z.coerce.number().int().min(0).default(0).describe('Desplazamiento para paginar.'),
   brand: brandQuery,
-  category: z.string().min(1).optional().describe("Substring case-insensitive de categoría. Ej: 'Bebidas'"),
+  category_top: categoryTopQuery,
+  category: z.string().min(1).optional().describe(CATEGORY_DEPRECATION),
   only_matched: booleanQuery
     .optional()
     .default(false)

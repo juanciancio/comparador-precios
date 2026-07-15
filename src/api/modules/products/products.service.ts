@@ -43,6 +43,7 @@ export class ProductsService {
       limit: query.limit,
       offset: query.offset,
       brand: query.brand,
+      categoryTop: query.category_top,
       category: query.category,
       onlyMatched: query.only_matched,
       sortBy: query.sort_by,

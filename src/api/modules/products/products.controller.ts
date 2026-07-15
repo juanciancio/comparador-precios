@@ -78,8 +78,16 @@ export class ProductsController {
       'Lista paginada de productos del catálogo unificado (Masonline + Carrefour), ' +
       'con la llave universal EAN. Cada producto incluye sus precios vigentes por ' +
       'cadena (array `retailers`) y `matched` (true si es comparable en ≥2 cadenas). ' +
-      'Filtros por marca (exacta), categoría (substring) y solo-matcheados; ' +
-      'ordenable por nombre, marca o fechas de avistaje.',
+      'Filtros por marca (exacta, repetible) y departamento top-level (exacto, ' +
+      'repetible); ordenable por nombre, marca o fechas de avistaje.\n\n' +
+      'Para filtrar por categoría usar **`category_top`**, que matchea exacto contra ' +
+      'el departamento: `?category_top=Limpieza` (uno solo) o ' +
+      '`?category_top=Limpieza&category_top=Accesorios%20De%20Limpieza` (varios, OR ' +
+      'entre ellos). El parámetro `category` sigue andando por compatibilidad hacia ' +
+      'atrás pero está **deprecado**: hace substring sobre el path completo, y como ' +
+      'hay 13 top-levels contenidos dentro de otro, arrastra falsos positivos ' +
+      '(`?category=Limpieza` trae 867 productos de fuera de `/Limpieza/`). ' +
+      'Ver `docs/analysis/top-levels-2026-07-14.md`.',
   })
   @ApiOkResponse({ type: ListProductsResponseDto, description: 'Página de productos + metadata de paginación.' })
   @ApiBadRequest()
