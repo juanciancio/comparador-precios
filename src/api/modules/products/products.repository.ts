@@ -12,7 +12,8 @@ export interface RetailerInfo {
 export interface ListFilters {
   limit: number;
   offset: number;
-  brand?: string | undefined;
+  /** Marcas exactas; matchea cualquiera de ellas (OR). Vacío = sin filtro. */
+  brand?: string[] | undefined;
   category?: string | undefined;
   onlyMatched: boolean;
   sortBy: 'name' | 'brand' | 'first_seen' | 'last_seen';
@@ -101,7 +102,8 @@ export class ProductsRepository {
 
   async listProducts(f: ListFilters): Promise<{ data: Product[]; total: number }> {
     const sql = this.sql;
-    const brandFilter = f.brand ? sql`AND p.brand = ${f.brand}` : sql``;
+    // .length, no truthiness: [] es truthy y filtraría por ninguna marca.
+    const brandFilter = f.brand?.length ? sql`AND p.brand = ANY(${f.brand})` : sql``;
     const categoryFilter = f.category
       ? sql`AND p.category_path ILIKE ${'%' + f.category + '%'}`
       : sql``;

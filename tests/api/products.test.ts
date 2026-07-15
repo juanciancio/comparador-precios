@@ -37,6 +37,54 @@ describe('GET /products', () => {
     for (const p of res.body.data) expect(p.brand).toBe('La Serenísima');
   });
 
+  describe('brand multi-valor', () => {
+    it('brand repetido devuelve las dos marcas', async () => {
+      const res = await request(http())
+        .get('/products')
+        .query({ brand: ['La Serenísima', 'Ilolay'], limit: 50 });
+      expect(res.status).toBe(200);
+      const brands = new Set(res.body.data.map((p: { brand: string }) => p.brand));
+      expect(brands).toEqual(new Set(['La Serenísima', 'Ilolay']));
+      for (const p of res.body.data) {
+        expect(['La Serenísima', 'Ilolay']).toContain(p.brand);
+      }
+    });
+
+    it('el total con dos marcas es la suma de los totales individuales', async () => {
+      const [a, b, both] = await Promise.all([
+        request(http()).get('/products').query({ brand: 'La Serenísima', limit: 1 }),
+        request(http()).get('/products').query({ brand: 'Ilolay', limit: 1 }),
+        request(http())
+          .get('/products')
+          .query({ brand: ['La Serenísima', 'Ilolay'], limit: 1 }),
+      ]);
+      expect(both.body.pagination.total).toBe(
+        a.body.pagination.total + b.body.pagination.total,
+      );
+    });
+
+    it('una marca inexistente en la lista se ignora, no rompe', async () => {
+      const res = await request(http())
+        .get('/products')
+        .query({ brand: ['La Serenísima', 'MarcaQueNoExiste'], limit: 20 });
+      expect(res.status).toBe(200);
+      expect(res.body.data.length).toBeGreaterThan(0);
+      for (const p of res.body.data) expect(p.brand).toBe('La Serenísima');
+    });
+
+    it('400 con brand vacío', async () => {
+      const res = await request(http()).get('/products').query({ brand: '' });
+      expect(res.status).toBe(400);
+    });
+
+    it('400 si alguna de las marcas repetidas viene vacía', async () => {
+      const res = await request(http())
+        .get('/products')
+        .query({ brand: ['La Serenísima', ''] });
+      expect(res.status).toBe(400);
+    });
+  });
+
   it('filtra por category (substring case-insensitive)', async () => {
     const res = await request(http()).get('/products').query({ category: 'bebidas', limit: 20 });
     expect(res.status).toBe(200);

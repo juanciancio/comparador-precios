@@ -11,12 +11,25 @@ const isoDate = z
   .string()
   .regex(/^\d{4}-\d{2}-\d{2}$/, 'formato de fecha inválido, se espera YYYY-MM-DD');
 
+/**
+ * Marca exacta, repetible: `?brand=Natura` o `?brand=Natura&brand=Cocinero`.
+ * Express entrega string cuando el param viene una vez y string[] cuando viene
+ * repetido; se normaliza a array siempre para que el repo tenga una sola forma.
+ * Compartido por /products y /search, que resuelven el filtro con el mismo
+ * ListFilters.
+ */
+export const brandQuery = z
+  .union([z.string().min(1), z.array(z.string().min(1)).nonempty()])
+  .transform((v) => (Array.isArray(v) ? v : [v]))
+  .optional()
+  .describe("Marca exacta a filtrar. Repetible. Ej: 'La Serenísima', o brand=Natura&brand=Cocinero");
+
 // ─── Query params ────────────────────────────────────────────────────────────
 
 export const ListProductsQuerySchema = z.object({
   limit: z.coerce.number().int().min(1).max(100).default(20).describe('Tamaño de página (1–100). Ej: 20'),
   offset: z.coerce.number().int().min(0).default(0).describe('Desplazamiento para paginar. Ej: 40'),
-  brand: z.string().min(1).optional().describe("Marca exacta a filtrar. Ej: 'La Serenísima'"),
+  brand: brandQuery,
   category: z
     .string()
     .min(1)

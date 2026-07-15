@@ -26,6 +26,24 @@ describe('GET /search', () => {
     }
   });
 
+  it('brand repetido filtra por varias marcas (mismo ListFilters que /products)', async () => {
+    const res = await request(http())
+      .get('/search')
+      .query({ q: 'aceite', brand: ['Natura', 'Cocinero'], limit: 50 });
+    expect(res.status).toBe(200);
+    expect(res.body.data.length).toBeGreaterThan(0);
+    for (const p of res.body.data) expect(['Natura', 'Cocinero']).toContain(p.brand);
+  });
+
+  it('brand único sigue funcionando (backwards compat)', async () => {
+    const res = await request(http())
+      .get('/search')
+      .query({ q: 'aceite', brand: 'Natura', limit: 20 });
+    expect(res.status).toBe(200);
+    expect(res.body.data.length).toBeGreaterThan(0);
+    for (const p of res.body.data) expect(p.brand).toBe('Natura');
+  });
+
   it('only_matched=true → todos matched: true', async () => {
     const res = await request(http())
       .get('/search')
