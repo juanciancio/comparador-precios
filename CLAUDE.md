@@ -341,6 +341,37 @@ ORDER BY valid_from DESC;
 
 ---
 
+## Nota sobre volatilidad de category_path
+
+El campo `category_path` vive en la tabla `products` (única a nivel EAN, no por
+retailer). Cuando el load procesa un producto que ya existía por otro retailer,
+sobrescribe este campo — no hay COALESCE ni resolución de conflictos.
+Consecuencia: la categoría de un producto en la DB refleja "el último retailer que
+lo procesó", no un consenso ni el retailer que primero lo vio.
+
+Ojo con el contraste: en el **mismo** `ON CONFLICT` de `load.ts`, `brand` y
+`category_path` tienen semánticas opuestas y es fácil asumir mal por analogía.
+
+```sql
+ON CONFLICT (ean) DO UPDATE SET
+  category_path = EXCLUDED.category_path,               -- último que escribe gana
+  brand         = COALESCE(products.brand, EXCLUDED.brand),   -- primero que escribe gana
+  image_url     = COALESCE(EXCLUDED.image_url, products.image_url),
+  last_seen_at  = NOW()
+```
+
+Detectado durante el análisis de top-levels el 14/07/2026, cuando midiendo
+compartidos entre las dos taxonomías dio "17 en ambas" contaminado. Recalculado
+sobre productos exclusivos de cada cadena dio 1 top-level realmente compartido
+(`Congelados`). Ver `docs/analysis/top-levels-2026-07-14.md`.
+
+Impacto actual: bajo. Los filtros de UI funcionan porque siempre se filtra contra
+el path efectivamente presente (`?category_top` incluido). Impacto potencial: si
+en el futuro se hacen agregaciones o joins que asumen "categoría estable por
+producto", esperar comportamiento inconsistente entre corridas del scraper. La
+regla práctica para medir algo por cadena: hacerlo sobre productos **exclusivos**
+de esa cadena, o el path matcheado te miente.
+
 ## Convenciones de código (obligatorias)
 
 - **TypeScript estricto.** Nunca `any`. Si algo se resiste, es `unknown` con narrowing explícito.

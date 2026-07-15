@@ -151,6 +151,12 @@ un enum estable ni comparable cross-retailer**: es la etiqueta cruda del
 departamento de cada cadena, y filtrar por él filtra dentro de una taxonomía, no
 sobre un concepto unificado.
 
+El reparto 18/100/1 se midió sobre productos **exclusivos** de cada cadena, no
+sobre el catálogo entero. No es un detalle: `products.category_path` lo pisa el
+último retailer que procesa el producto, así que en los matcheados el path no
+identifica a la cadena que lo aportó. Medido a lo bruto, el solape daba 17 en vez
+de 1. Ver CLAUDE.md → "Nota sobre volatilidad de category_path".
+
 ## Substring collisions: por qué `?category=` no alcanza
 
 `?category=` hace `ILIKE '%valor%'` sobre el path completo, así que un top-level
