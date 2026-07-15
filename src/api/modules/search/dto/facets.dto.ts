@@ -36,8 +36,10 @@ export const SearchFacetsQuerySchema = z.object({
     .min(1)
     .optional()
     .describe(
-      'Filtra los facets a marcas cuyo nombre contenga este texto (case-insensitive). ' +
-        'Alimenta el input "Buscar marca" del sidebar. Ausente: top por count. Ej: ser',
+      'Filtra los facets a marcas cuyo nombre contenga este texto. Insensible a ' +
+        'mayúsculas Y a acentos/ñ: `serenisima` encuentra "La Serenísima", ' +
+        '`tres ninas` encuentra "Las Tres Niñas". Alimenta el input "Buscar marca" ' +
+        'del sidebar. Ausente: top por count. Ej: ser',
     ),
   limit: z.coerce
     .number()

@@ -331,19 +331,28 @@ export class ProductsRepository {
    * `brand IS NOT NULL`: products.brand es nullable (transform.ts manda null si
    * el retailer no informa marca) y una fila sin marca no es una opción tildeable
    * en el sidebar. Hoy son 0 filas, así que no abre gap contra el total.
+   *
+   * `brandQuery` compara con unaccent de los dos lados (ver `unaccentIlike`).
+   * Es texto libre tipeado por el usuario, a diferencia del filtro `brand` de
+   * /products y /search, que recibe el nombre exacto que el sidebar tildó y por
+   * eso sigue siendo match exacto.
    */
   async brandFacets(f: BrandFacetFilters): Promise<BrandFacet[]> {
     const sql = this.sql;
     const scopeFilter = this.scopeSql(f);
     const brandQueryFilter = f.brandQuery
-      ? sql`AND p.brand ILIKE ${'%' + f.brandQuery + '%'}`
+      ? sql`AND ${this.unaccentIlike('%' + f.brandQuery + '%')}`
       : sql``;
 
     // Con texto, los que empiezan con el término van primero: al tipear "ser" se
     // espera "Serenísima" antes que "Cañuelas Serenísima". El boolean ordena
     // true-first con DESC. Sin texto, es top por count puro.
+    //
+    // El prefijo va por unaccent igual que el filtro: si el grupo se decidiera
+    // con acentos, "serenisima" entraría por el filtro insensible pero se
+    // agruparía como substring, y el orden contradiría al match.
     const orderBy = f.brandQuery
-      ? sql`(p.brand ILIKE ${f.brandQuery + '%'}) DESC, COUNT(*) DESC, p.brand ASC`
+      ? sql`(${this.unaccentIlike(f.brandQuery + '%')}) DESC, COUNT(*) DESC, p.brand ASC`
       : sql`COUNT(*) DESC, p.brand ASC`;
 
     return sql<BrandFacet[]>`
@@ -354,6 +363,25 @@ export class ProductsRepository {
       ORDER BY ${orderBy}
       LIMIT ${f.limit}
     `;
+  }
+
+  /**
+   * `p.brand` comparado contra un patrón LIKE, insensible a mayúsculas Y a
+   * acentos/ñ. Solo para `brand_query` de /search/facets, que es texto libre
+   * tipeado por un usuario argentino en celular, donde no tildar es la norma:
+   * "serenisima" tiene que encontrar "La Serenísima" y "tres ninas" a "Las Tres
+   * Niñas". Los `%` del patrón atraviesan unaccent sin cambio.
+   *
+   * NO se usa para el filtro `brand` de /products y /search: ese recibe el
+   * nombre canónico exacto que el sidebar tildó, no texto tipeado.
+   *
+   * unaccent() es STABLE (depende del diccionario), no IMMUTABLE, así que no se
+   * puede indexar sin envolverla en una función IMMUTABLE — y aun así un btree
+   * no serviría para el patrón '%texto%' con wildcard inicial. Medido: no hace
+   * falta, ver docs/NEXT_SESSION.md.
+   */
+  private unaccentIlike(pattern: string) {
+    return this.sql`unaccent(p.brand) ILIKE unaccent(${pattern})`;
   }
 
   /**

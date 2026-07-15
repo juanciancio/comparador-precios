@@ -1,0 +1,18 @@
+-- Extensión unaccent, para el filtro `brand_query` de GET /search/facets.
+--
+-- El usuario es argentino tipeando en celular: no tildar es la norma. Sin
+-- unaccent, `brand_query=serenisima` no matcheaba "La Serenísima" (45 productos)
+-- y devolvía "La Serenisima Baby" (3) — que el catálogo tiene sin acento. Peor
+-- que no devolver nada: el usuario creía haber encontrado la marca y filtraba
+-- 3 productos equivocados. Ver docs/NEXT_SESSION.md.
+--
+-- Sin `WITH SCHEMA` a propósito: en Supabase la extensión ya vive en el schema
+-- `extensions` (convención de la plataforma, junto a pgcrypto y uuid-ossp), así
+-- que acá es no-op. En un Postgres local (Docker) ese schema no existe y la
+-- extensión aterriza en `public`. Ambos están en el search_path de su
+-- plataforma, así que las llamadas sin calificar resuelven en los dos casos;
+-- forzar `WITH SCHEMA extensions` rompería el dev local.
+--
+-- No requirió habilitación manual desde el dashboard de Supabase: la conexión
+-- de la app (usuario `postgres`) puede crearla.
+CREATE EXTENSION IF NOT EXISTS unaccent;

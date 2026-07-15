@@ -56,6 +56,18 @@ const totalVia = async (
   return res.body.pagination.total;
 };
 
+/**
+ * Equivalente en JS del unaccent() de Postgres para nuestro caso: NFD separa el
+ * carácter base de su diacrítico y se descartan los diacríticos. Cubre acentos
+ * (í -> i) y también la ñ, que en NFD es n + tilde combinante.
+ */
+const stripAccents = (s: string): string =>
+  s.normalize('NFD').replace(/[̀-ͯ]/g, '').toLowerCase();
+
+/** Clasificación prefix/substring insensible a acentos, igual que el ORDER BY. */
+const isPrefixOf = (term: string) => (b: Facet) =>
+  stripAccents(b.name).startsWith(stripAccents(term));
+
 const expectCountDesc = (brands: Facet[]): void => {
   for (let i = 1; i < brands.length; i++) {
     expect(brands[i - 1]!.count).toBeGreaterThanOrEqual(brands[i]!.count);
@@ -188,7 +200,7 @@ describe('GET /search/facets', () => {
 
     it('los prefix-match van primero, después los substring', async () => {
       const brands = await facets({ brand_query: 'ser', limit: 50 });
-      const isPrefix = (b: Facet) => b.name.toLowerCase().startsWith('ser');
+      const isPrefix = isPrefixOf('ser');
       // lastIndexOf sobre los flags, no findLastIndex: el lib del tsconfig es
       // anterior a es2023 y api:build lo rechaza.
       const flags = brands.map(isPrefix);
@@ -200,9 +212,19 @@ describe('GET /search/facets', () => {
       expect(lastPrefix).toBeLessThan(firstSubstring);
     });
 
+    it('el prefijo le gana al count: Serta (108) antes que La Serenísima (143)', async () => {
+      const brands = await facets({ brand_query: 'ser', limit: 50 });
+      const at = (name: string) => brands.findIndex((b) => b.name === name);
+      expect(at('Serta'), 'fixture: Serta debería matchear').toBeGreaterThanOrEqual(0);
+      expect(at('La Serenísima'), 'fixture: La Serenísima debería matchear').toBeGreaterThanOrEqual(0);
+      // La Serenísima tiene más productos, pero matchea por substring: va después.
+      expect(brands[at('La Serenísima')]!.count).toBeGreaterThan(brands[at('Serta')]!.count);
+      expect(at('Serta')).toBeLessThan(at('La Serenísima'));
+    });
+
     it('dentro de cada grupo ordena por count DESC', async () => {
       const brands = await facets({ brand_query: 'ser', limit: 50 });
-      const isPrefix = (b: Facet) => b.name.toLowerCase().startsWith('ser');
+      const isPrefix = isPrefixOf('ser');
       expectCountDesc(brands.filter(isPrefix));
       expectCountDesc(brands.filter((b) => !isPrefix(b)));
     });
@@ -228,6 +250,90 @@ describe('GET /search/facets', () => {
           expect(prev.name.localeCompare(cur.name, 'es')).toBeLessThan(0);
         }
       }
+    });
+  });
+
+  // ─── brand_query insensible a acentos y ñ ──────────────────────────────────
+  //
+  // El usuario es argentino tipeando en celular: no tildar es la norma. Antes
+  // del fix, `brand_query=serenisima` devolvía "La Serenisima Baby" (3) y NO
+  // "La Serenísima" (la marca real) — data que miente sin avisar: el usuario
+  // creía haber encontrado la marca y filtraba los productos equivocados.
+  // Los counts no se hardcodean: se contrastan contra /products?brand=<exacto>,
+  // que es lo que el sidebar dispara al tildar la marca.
+  describe('acentos y ñ (bug reportado por el frontend, 15/07/2026)', () => {
+    const namesOf = (bs: Facet[]) => bs.map((b) => b.name);
+
+    it('brand_query=serenisima (sin acento) devuelve "La Serenísima", no solo la Baby', async () => {
+      const brands = await facets({ brand_query: 'serenisima', limit: 50 });
+      expect(namesOf(brands)).toContain('La Serenísima');
+    });
+
+    it('brand_query=serenísima (con acento) devuelve lo mismo: el acento no cambia el resultado', async () => {
+      const sin = await facets({ brand_query: 'serenisima', limit: 50 });
+      const con = await facets({ brand_query: 'serenísima', limit: 50 });
+      expect(con).toEqual(sin);
+    });
+
+    it('brand_query=generico (sin acento) devuelve "Genérico"', async () => {
+      const brands = await facets({ brand_query: 'generico', limit: 50 });
+      expect(namesOf(brands)).toContain('Genérico');
+    });
+
+    it('brand_query=tres ninas (sin ñ) devuelve "Las Tres Niñas"', async () => {
+      const brands = await facets({ brand_query: 'tres ninas', limit: 50 });
+      expect(namesOf(brands)).toContain('Las Tres Niñas');
+    });
+
+    it('brand_query=tres niñas (con ñ) devuelve lo mismo: la ñ no cambia el resultado', async () => {
+      const sinEnie = await facets({ brand_query: 'tres ninas', limit: 50 });
+      const conEnie = await facets({ brand_query: 'tres niñas', limit: 50 });
+      expect(conEnie).toEqual(sinEnie);
+    });
+
+    it('brand_query=eneric (substring sin acento) devuelve "Genérico"', async () => {
+      const brands = await facets({ brand_query: 'eneric', limit: 50 });
+      expect(namesOf(brands)).toContain('Genérico');
+    });
+
+    // Discriminante del unaccent en la comparación de PREFIJO, no solo en el
+    // filtro: 'Éxito' ILIKE 'ex%' es false sin unaccent, así que caería al grupo
+    // substring y quedaría sepultado detrás de Tex (975 productos). Con unaccent
+    // en ambos lados entra al grupo prefijo y va antes, pese a tener 20.
+    it('el prefijo se decide con unaccent: "Éxito" (20) antes que "Tex" (975)', async () => {
+      const brands = await facets({ brand_query: 'ex', limit: 50 });
+      const at = (name: string) => brands.findIndex((b) => b.name === name);
+      expect(at('Éxito'), 'fixture: Éxito debería matchear').toBeGreaterThanOrEqual(0);
+      expect(at('Tex'), 'fixture: Tex debería matchear').toBeGreaterThanOrEqual(0);
+      expect(brands[at('Tex')]!.count).toBeGreaterThan(brands[at('Éxito')]!.count);
+      expect(at('Éxito')).toBeLessThan(at('Tex'));
+      // Y el grupo entero respeta la clasificación insensible a acentos.
+      const flags = brands.map(isPrefixOf('ex'));
+      expect(flags.lastIndexOf(true)).toBeLessThan(flags.indexOf(false));
+    });
+
+    // El caveat de la cadena brand_query -> brand: el facet cuenta con GROUP BY
+    // sobre la columna cruda, así que cada fila es UNA marca exacta y su count es
+    // el del match exacto. unaccent decide qué marcas se listan, no cómo se
+    // agrupan. Por eso el count que ve el usuario es el que va a obtener al
+    // tildar, aunque haya tipeado sin acento.
+    it('el count de un facet es el que después filtra brand= exacto desde el sidebar', async () => {
+      const brands = await facets({ brand_query: 'serenisima', limit: 50 });
+      expect(brands.length).toBeGreaterThan(0);
+      for (const b of brands) {
+        expect(b.count, `marca ${b.name}`).toBe(await totalVia('/products', { brand: b.name }));
+      }
+    });
+
+    // Genérico y Generico coexisten en el catálogo (el scraper no funde acentos a
+    // propósito, ver transform.ts:normalizeBrand). unaccent las trae a las dos
+    // ante `generico`, y son opciones distintas y tildeables por separado.
+    it('marcas que solo difieren en el acento se devuelven separadas, no fusionadas', async () => {
+      const brands = await facets({ brand_query: 'generico', limit: 50 });
+      const names = namesOf(brands);
+      expect(names).toContain('Genérico');
+      expect(names).toContain('Generico');
+      expect(new Set(names).size, 'sin duplicados').toBe(names.length);
     });
   });
 

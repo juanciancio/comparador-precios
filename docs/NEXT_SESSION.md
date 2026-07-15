@@ -274,6 +274,68 @@ se resuelve junto con el FTS pendiente (ver backlog): un `tsvector` + GIN, o un
 índice trigram `USING gin (name_canonical gin_trgm_ops)` si se quiere atacar solo
 la latencia sin tocar el ranking. **No aplicado**, a la espera de revisión.
 
+#### `brand_query` insensible a acentos y ñ — FIXED 15/07/2026
+
+**Destraba B3.2** (sidebar de filtros, ya integrado en main del frontend).
+
+El filtro era `ILIKE '%texto%'`: case-insensitive pero sensible a acentos y ñ.
+Nuestro usuario es argentino tipeando en celular, donde no tildar es la norma.
+El caso grave no era devolver vacío sino **devolver la marca equivocada**:
+`brand_query=serenisima` traía `La Serenisima Baby` (3 productos, el catálogo la
+tiene sin acento) y **no** `La Serenísima` (45 en `q=leche`). El usuario creía
+haber encontrado la marca y filtraba 3 productos equivocados — data que miente
+sin avisar. `generico` y `tres ninas` devolvían vacío.
+
+Fix: `unaccent()` de los dos lados, tanto en el filtro como en la comparación de
+**prefijo** del ORDER BY (`ProductsRepository.unaccentIlike`). El prefijo importa
+tanto como el filtro: sin unaccent ahí, `'Éxito' ILIKE 'ex%'` es false y la marca
+cae al grupo substring, sepultada detrás de `Tex` (975 productos) pese a que el
+usuario tipeó su prefijo exacto. Hay un test que ancla justo ese caso.
+
+Alcance quirúrgico: **solo** `brand_query` de `/search/facets`, que es texto libre
+tipeado. El filtro `brand` de `/products` y `/search` sigue siendo match exacto —
+recibe el nombre canónico que el sidebar tildó, no algo tipeado.
+
+**La cadena `brand_query` → `brand` es consistente, no hay bug ahí.** El facet
+agrupa con `GROUP BY p.brand` sobre la columna cruda, así que cada fila es una
+marca exacta y su count es el del match exacto; unaccent decide **qué marcas se
+listan**, no **cómo se agrupan**. El count que ve el usuario es el que obtiene al
+tildar, aunque haya tipeado sin acento. Anclado en un test que contrasta cada
+facet contra `/products?brand=<nombre exacto>`.
+
+Efecto lateral que conviene conocer: `brand_query=generico` ahora devuelve
+`Genérico` (2294) **y** `Generico` (1313) como opciones separadas, igual que
+`aguila` trae `Aguila` y `Águila`. Es correcto — son marcas distintas en la DB y
+se tildan por separado —, pero es la cara visible de la **fragmentación de marca**
+documentada más abajo (116 pares). Si algún día se decide fusionarlas, es ahí y no
+acá.
+
+**Migración `006_unaccent_extension.sql`.** `CREATE EXTENSION IF NOT EXISTS
+unaccent`, **sin acción manual en el dashboard de Supabase**: la conexión de la app
+(usuario `postgres`) puede crearla. En Supabase la extensión vive en el schema
+`extensions` (convención de la plataforma, junto a pgcrypto y uuid-ossp); la
+migración no fuerza `WITH SCHEMA` para no romper el Postgres local de dev, donde
+ese schema no existe y la extensión aterriza en `public`. Ambos están en el
+search_path de su plataforma.
+
+**Sin índice, y el que parecía obvio no existe.** `CREATE INDEX ... (unaccent(brand)
+text_pattern_ops)` **falla**: `unaccent()` es STABLE (depende del diccionario), no
+IMMUTABLE, y Postgres exige IMMUTABLE en expresiones de índice. Se podría envolver
+en una función IMMUTABLE, pero sería mentirle al planner. Y aun así no serviría:
+un btree con `text_pattern_ops` solo cubre `LIKE 'prefijo%'`, no el `'%texto%'` con
+wildcard inicial que usa el filtro. Medido, no hace falta (mediana de 12 corridas):
+
+| scope | sin `brand_query` | con `brand_query` + unaccent |
+| --- | --- | --- |
+| sin scope | 11.0ms | 77.1ms |
+| `category_top=Almacén` | 13.3ms | 15.5ms |
+| `q=leche` | 135.8ms | 136.1ms |
+
+unaccent cuesta ~2µs por fila: se nota solo sin scope (35k filas → +66ms), es
+marginal en Almacén (+2ms) y nulo en `q=leche`, donde el Seq Scan del `q` ya
+domina. Nada pasa de 100ms, y sin `brand_query` la función ni se evalúa. El plan
+ya era Seq Scan antes del fix: no hay degradación de plan, solo CPU por fila.
+
 ---
 
 ## Endpoints y params pendientes (backlog)
