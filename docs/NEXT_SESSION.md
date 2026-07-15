@@ -7,6 +7,17 @@
 
 ## 1. Estado actual del proyecto
 
+- **🔴 Investigación de descuentos COMPLETA (15/07/2026) — sesión de diseño pendiente
+  con Juan.** Hallazgos en `research/precios-descuento/HALLAZGOS.md`. Resumen: el
+  `price` que mostramos es el **efectivo con descuentos ya aplicados**; `list_price`
+  ya está en la DB (100% poblado) pero nunca se expone. Brecha `list > price` en
+  **44,7%** del catálogo Carrefour y **20,1%** de Masonline. Al menos ~10% de los
+  descuentos de Carrefour son demostrablemente condicionales (fidelidad "Mi Crf"),
+  nombrados en `DiscountHighLight` — campo que **no capturamos**. Masonline no expone
+  metadata de promo alguna. **Bug detectado y NO corregido** (fuera de scope de esa
+  sesión): `promo_description` es NULL en las 47.358 filas por serialización de
+  backing fields de C# en `Teasers`. **No tomar decisiones de UI/schema antes de la
+  sesión de diseño.**
 - **Fase 2 cerrada:** scrapers Masonline + Carrefour en autopilot vía GitHub
   Actions (`daily-scrape.yml`, 04:00 ART) + health check semanal. Se alimenta solo.
 - **Fase 3.A COMPLETA (14/07/2026) — API HTTP (NestJS):** montada en el mismo repo

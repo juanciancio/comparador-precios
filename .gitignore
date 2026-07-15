@@ -21,3 +21,6 @@ coverage/
 # OS
 .DS_Store
 Thumbs.db
+
+# Research: dumps crudos de VTEX (regenerables con los scripts, ~2MB)
+research/**/dumps/
