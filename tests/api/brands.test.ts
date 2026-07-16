@@ -46,4 +46,14 @@ describe('GET /brands', () => {
     expect(generics.length).toBeGreaterThan(0);
     for (const g of generics) expect(g.matched_count).toBe(0);
   });
+
+  it('marcas fragmentadas se fusionan: un solo Genérico, no dos entradas', async () => {
+    const res = await request(http()).get('/brands').query({ limit: 500 });
+    expect(res.status).toBe(200);
+    const names = (res.body as Brand[]).map((b) => b.name);
+    expect(names).toContain('Genérico');
+    expect(names).not.toContain('Generico'); // fusionado en el canónico
+    // Sin duplicados de display en toda la lista.
+    expect(new Set(names).size).toBe(names.length);
+  });
 });

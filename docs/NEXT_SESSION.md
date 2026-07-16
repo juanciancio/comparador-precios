@@ -151,6 +151,65 @@ primeras 24-48hs conviven filas con semántica vieja y nueva.
 
 ---
 
+## 2.b Sesión 16/07/2026 (tarde) — normalización de marcas
+
+**Objetivo:** cerrar la deuda de fragmentación de marcas (119 grupos, misma marca
+escrita distinto) como **capa de presentación**. La DB no cambió: `products.brand`
+sigue crudo. La fusión vive solo en la respuesta de la API.
+
+**Arquitectura (5 piezas):**
+
+1. **`src/config/brand-normalization.ts`** — 17 overrides de display manuales
+   (ATMA, BGH, LG, Ga.Ma, Pet's Class, …) + allowlist de exclusiones de merge
+   (hoy solo `Boss`/`BOSS`, que colisionan por N3 pero son empresas distintas).
+2. **`src/lib/brand/normalize.ts`** — `normalizeBrandKey` (clave N3: trim →
+   unaccent → lowercase → strip no-alfanumérico), `hasAccents`, `isCaseMixed`,
+   `resolveBrandDisplay` (override → regla X3 → fallback alfabético). Espejo SQL
+   documentado y verificado por test de paridad.
+3. **`src/lib/brand/groups.ts`** — `buildBrandGroups` (agrupamiento puro por clave
+   N3, con exclusiones de merge como grupos singleton) y `groupKeyFor`.
+4. **`BrandCatalogService`** (`src/api/common/brand/`, módulo global) — construye y
+   cachea (TTL 5 min) el mapa global `marca cruda → display canónico`. Fuente única
+   del display para que el campo `brand` de productos y los `name` de facets/brands
+   resuelvan siempre al mismo string (sostiene la invariante suma==total).
+5. **Aplicación en endpoints:** `/search/facets` y `/brands` agrupan por marca
+   canónica (display global, count sumado); `/products`, `/search` y `/products/:ean`
+   reemplazan `brand` por el display canónico; el filtro `?brand=` se **expande a las
+   formas crudas del grupo** vía el mapa y filtra con `p.brand = ANY(...)`.
+
+**Decisión de perf (importante).** El diseño sugería filtrar `?brand=` con
+`WHERE normalizeBrandKey(brand) = normalizeBrandKey(:input)` (función por fila).
+Medido: **~3x más lento** (40ms → 122ms) porque `unaccent` es STABLE y mata el uso
+de `idx_products_brand` → seq scan de 35k filas. En lugar de eso, se expande el
+input a las formas crudas del grupo (que ya viven en el mapa cacheado) y se usa
+`p.brand = ANY(formas)`, que **mantiene el índice** y vuelve a ~41ms. Mismo result
+set, sin degradación. El espejo SQL de `normalizeBrandKey` sigue documentado y
+testeado (paridad TS↔SQL) para queries ad-hoc, pero no está en el hot path.
+
+**Reducción real de entradas en el sidebar (medido contra la DB):**
+- `q=leche`: 125 → **121** marcas (−4). Top: La Serenísima (45), Carrefour (36),
+  Milka (17), … Nestlé (8) ahora fusiona `Nestle`+`Nestlé`.
+- `category_top=Almacén`: 246 → **234** marcas (−12).
+- Global: 2.752 formas crudas → **2.632** grupos canónicos (118 fragmentados; el
+  +1 sobre los 2.631 de N3 puro es exactamente `Boss`/`BOSS` mantenidos separados).
+- **Boss:** `/search/facets?brand_query=boss` devuelve **dos** entradas separadas
+  (`Boss` 1, `BOSS` 1); `/products?brand=Boss` no arrastra `BOSS`. ✅
+
+**Tests:** +68 (unit de normalización + paridad SQL) y casos nuevos de integración
+en facets/products/brands. `pnpm test:api` verde salvo el flake conocido de
+`list-price` (ver [[tests-fragiles-conocidos]], no relacionado). OpenAPI sin diff
+estructural (ningún shape de respuesta cambió).
+
+**Fuera de scope (respetado):** no se tocó `/compare`, `/price-history`,
+`/recent-changes` (mantiene brand crudo a propósito) ni el scraper. Nada persistido.
+
+**Deuda residual:** los overrides y la allowlist son estáticos en el repo. La
+allowlist (`BRAND_MERGE_EXCLUSIONS`) necesita **revisión periódica**: marcas nuevas
+pueden traer colisiones caso-fold como Boss. Hoy es 1 caso; conviene re-auditar los
+grupos "case" cuando entren cadenas nuevas (Coto, Día, Jumbo).
+
+---
+
 ## 3. Sesión anterior (Fase A) — qué quedó hecho
 
 - **Bootstrap NestJS con runtime SWC** (`@swc-node/register`, NO tsx — esbuild no
@@ -425,25 +484,22 @@ listan**, no **cómo se agrupan**. El count que ve el usuario es el que obtiene 
 tildar, aunque haya tipeado sin acento. Anclado en un test que contrasta cada
 facet contra `/products?brand=<nombre exacto>`.
 
-Efecto lateral que conviene conocer: `brand_query=generico` ahora devuelve
-`Genérico` (2294) **y** `Generico` (1313) como opciones separadas, igual que
-`aguila` trae `Aguila` y `Águila`. Es correcto — son marcas distintas en la DB y
-se tildan por separado —, pero es la cara visible de la **fragmentación de marca**
-documentada más abajo (116 pares). Si algún día se decide fusionarlas, es ahí y no
-acá.
+> **⚠️ Histórico (pre-16/07/2026 tarde):** el párrafo original decía que
+> `brand_query=generico` devolvía `Genérico` y `Generico` **por separado**. Eso
+> dejó de ser cierto: la **normalización de marca (fusión por clave N3)** ya está
+> implementada como capa de presentación. `brand_query=generico` ahora devuelve
+> **una sola** entrada `Genérico` con el count fusionado. Ver sección **"Sesión
+> 16/07/2026 (tarde) — normalización de marcas"** abajo.
 
-> **Investigación de fragmentación de marcas completa (16/07/2026).** Los datos
-> reales de hoy están en `research/fragmentacion-marcas/HALLAZGOS.md`. Resumen:
-> **119 grupos fragmentados** (240 formas crudas → 121 duplicados) sobre 2.752
-> marcas; reparto parejo por tipo (43 acento / 38 caso / 38 puntuación, **0
-> mezcla**); un solo grupo (`Genérico`/`Generico`, 3.628 productos) es el 63% del
-> impacto y el resto es long tail. **La hipótesis de fusión automática se sostiene
-> en 118/119 grupos**; el único que la rompe es `Boss` (Hugo Boss perfume vs BOSS
-> Audio autoestéreo, distintos por caso) → hace falta allowlist o revisión manual,
-> no colapso ciego. Recomendación: clave de colapso `lower(trim(unaccent(brand)))`
-> + strip de puntuación, separando clave-de-agrupamiento de forma-de-display.
-> **Sesión de diseño pendiente con Juan** (dónde se aplica y cómo se resuelve el
-> display — no decidido en la investigación).
+> **✅ Fragmentación de marcas RESUELTA (16/07/2026).** La investigación
+> (`research/fragmentacion-marcas/HALLAZGOS.md`) documentó **119 grupos
+> fragmentados** (240 formas crudas → 121 duplicados) sobre 2.752 marcas; un solo
+> grupo (`Genérico`/`Generico`, 3.628 productos) es el 63% del impacto y el resto
+> es long tail. La solución de presentación ya está en producción: clave de
+> agrupamiento N3 (`lower(trim(unaccent(brand)))` + strip de puntuación), display
+> canónico con overrides manuales + regla X3, y allowlist para el único caso que
+> rompe la fusión automática (`Boss` vs `BOSS`). La DB no cambió: `products.brand`
+> sigue crudo. Detalle en la sección de la sesión del 16/07 (tarde).
 
 **Migración `006_unaccent_extension.sql`.** `CREATE EXTENSION IF NOT EXISTS
 unaccent`, **sin acción manual en el dashboard de Supabase**: la conexión de la app
@@ -500,8 +556,9 @@ Nada de esto bloquea el deploy ni la Fase 3.B. Ordenados por cuán bloqueados es
   frontend. **Los fixtures ya están documentados** — ver "Casos de estudio para
   suspicion_score" al final de este archivo: el caso ancla (EAN `7896015519223`,
   brand "100 Pipers" sobre una pasta Sensodyne), 9 mismatches más de regresión, los
-  4 tipos de falso positivo que hay que esquivar, y la fragmentación de marca (116
-  pares) con la advertencia de que Levenshtein solo no alcanza.
+  4 tipos de falso positivo que hay que esquivar, y la fragmentación de marca (119
+  grupos, ya fusionada en la capa de presentación — ver sesión 16/07 tarde) con la
+  advertencia de que Levenshtein solo no alcanza.
 
 ### Ya implementados (histórico)
 
@@ -617,17 +674,20 @@ mercado, score BAJO) y los outliers del reporte cross-retailer en `LATEST_RUN.md
   marcas del catálogo (`Worksite` → "Destornillador Punta *Philips*", donde
   Philips es el tipo de punta, no la marca).
 
-- **Fragmentación de marca (misma marca escrita de dos formas).** No es lo mismo
-  que el mismatch, pero **rompe la home por la misma vía** — dedup por marca las
-  cuenta como distintas — así que conviene atacarlas juntas. Hay **116 pares** que
-  colapsan al normalizar caso/acento/puntuación: `Aguila`/`Águila` (41 y 7),
-  `Atma`/`ATMA` (20 y 89), `Ayudin`/`Ayudín` (39 y 22), `Dermaglos`/`Dermaglós`
-  (41 y 6), `Aston`/`ASTON` (171 y 11), `Bel Gioco`/`Belgioco` (15 y 8),
-  `7 Up`/`7up` (2 y 10), `Ga.Ma`/`Gama` (11 y 24), `Fisher Price`/`Fisher-Price`.
+- **Fragmentación de marca (misma marca escrita de dos formas).** **✅ RESUELTA
+  en la capa de presentación (16/07/2026, sesión de la tarde).** Eran **119
+  grupos** que colapsan al normalizar caso/acento/puntuación: `Aguila`/`Águila`,
+  `Atma`/`ATMA`, `Ayudin`/`Ayudín`, `Dermaglos`/`Dermaglós`, `Aston`/`ASTON`,
+  `Ga.Ma`/`Gama`, etc. Ya no cuentan como marcas distintas en `/brands`,
+  `/search/facets`, ni en el campo `brand` de `/products` y `/search` — se fusionan
+  por clave N3 y se muestran con un display canónico único. La dedup de la home
+  puede confiar en ese campo. Detalle en la sección de la sesión del 16/07 (tarde).
 
-  Esto **no lo cubre `normalizeBrand`** (`src/pipeline/transform.ts`), que es
-  deliberadamente conservador: trim, colapso de espacios y strip de puntuación
-  final, sin tocar caso ni acentos. Es decisión vigente, no bug.
+  Esto **no lo cubre `normalizeBrand`** (`src/pipeline/transform.ts`), que sigue
+  siendo deliberadamente conservador (trim, colapso de espacios, strip de
+  puntuación final, sin tocar caso ni acentos) porque la DB conserva la forma
+  cruda a propósito. La fusión vive **solo en la respuesta de la API**, no en la
+  ingesta.
 
   El precedente **H2oh!** cae acá y muestra el límite: el retailer carga
   `brand="H20!"` (con cero) y `name="Agua Saborizada H2oh! Sabor Naranja"`. Un

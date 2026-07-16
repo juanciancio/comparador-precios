@@ -85,6 +85,62 @@ describe('GET /products', () => {
     });
   });
 
+  // ─── Filtro por marca CANÓNICA (normalización de presentación) ──────────────
+  //
+  // El sidebar tilda el display canónico; el filtro expande a todas las formas
+  // crudas del grupo N3. La DB sigue con las formas crudas; el campo `brand` de
+  // la respuesta siempre es el display canónico.
+  describe('brand canónico (fusión de marcas fragmentadas)', () => {
+    const totalFor = async (brand: string): Promise<number> => {
+      const res = await request(http()).get('/products').query({ brand, limit: 1 });
+      expect(res.status).toBe(200);
+      return res.body.pagination.total;
+    };
+
+    it('brand=Genérico trae Genérico OR Generico (acento) bajo el display canónico', async () => {
+      const res = await request(http()).get('/products').query({ brand: 'Genérico', limit: 50 });
+      expect(res.status).toBe(200);
+      expect(res.body.data.length).toBeGreaterThan(0);
+      for (const p of res.body.data) expect(p.brand).toBe('Genérico');
+      // Ambas formas normalizan a la misma clave -> mismo universo filtrado.
+      expect(await totalFor('Genérico')).toBe(await totalFor('Generico'));
+    });
+
+    it('brand=Ga.Ma trae Gama OR Ga.Ma (puntuación) bajo el display canónico', async () => {
+      const res = await request(http()).get('/products').query({ brand: 'Ga.Ma', limit: 50 });
+      expect(res.status).toBe(200);
+      expect(res.body.data.length).toBeGreaterThan(0);
+      for (const p of res.body.data) expect(p.brand).toBe('Ga.Ma');
+      expect(await totalFor('Ga.Ma')).toBe(await totalFor('Gama'));
+      // El grupo es estrictamente mayor que cualquiera de sus formas... si tuviera
+      // el count por-forma. No lo tenemos desde la API; alcanza con que ambas
+      // formas devuelvan el mismo total fusionado y sea > 0.
+      expect(await totalFor('Ga.Ma')).toBeGreaterThan(0);
+    });
+
+    it('brand=Ayudín (display X3) trae también la forma sin acento Ayudin', async () => {
+      const res = await request(http()).get('/products').query({ brand: 'Ayudín', limit: 50 });
+      expect(res.status).toBe(200);
+      expect(res.body.data.length).toBeGreaterThan(0);
+      for (const p of res.body.data) expect(p.brand).toBe('Ayudín');
+      expect(await totalFor('Ayudín')).toBe(await totalFor('Ayudin'));
+    });
+
+    it('brand=Boss NO arrastra BOSS (exclusión de merge): son grupos distintos', async () => {
+      const boss = await request(http()).get('/products').query({ brand: 'Boss', limit: 50 });
+      const bossAudio = await request(http()).get('/products').query({ brand: 'BOSS', limit: 50 });
+      expect(boss.status).toBe(200);
+      expect(bossAudio.status).toBe(200);
+      expect(boss.body.data.length).toBeGreaterThan(0);
+      expect(bossAudio.body.data.length).toBeGreaterThan(0);
+      for (const p of boss.body.data) expect(p.brand).toBe('Boss');
+      for (const p of bossAudio.body.data) expect(p.brand).toBe('BOSS');
+      // Distintos universos: la fusión ciega los uniría, la exclusión los separa.
+      const bossEans = new Set(boss.body.data.map((p: { ean: string }) => p.ean));
+      for (const p of bossAudio.body.data) expect(bossEans.has(p.ean)).toBe(false);
+    });
+  });
+
   describe('category_top (match exacto contra el departamento)', () => {
     it('devuelve solo productos cuyo path arranca con /Limpieza/', async () => {
       const res = await request(http())

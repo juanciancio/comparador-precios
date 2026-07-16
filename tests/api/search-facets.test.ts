@@ -325,15 +325,43 @@ describe('GET /search/facets', () => {
       }
     });
 
-    // Genérico y Generico coexisten en el catálogo (el scraper no funde acentos a
-    // propósito, ver transform.ts:normalizeBrand). unaccent las trae a las dos
-    // ante `generico`, y son opciones distintas y tildeables por separado.
-    it('marcas que solo difieren en el acento se devuelven separadas, no fusionadas', async () => {
+    // Genérico y Generico coexisten como formas crudas en el catálogo (el scraper
+    // no funde acentos, ver transform.ts:normalizeBrand), pero la normalización de
+    // presentación las fusiona en un único grupo canónico "Genérico".
+    it('marcas que solo difieren en el acento se fusionan en una sola entrada canónica', async () => {
       const brands = await facets({ brand_query: 'generico', limit: 50 });
       const names = namesOf(brands);
       expect(names).toContain('Genérico');
-      expect(names).toContain('Generico');
-      expect(new Set(names).size, 'sin duplicados').toBe(names.length);
+      expect(names).not.toContain('Generico');
+
+      const generico = brands.filter((b) => stripAccents(b.name).replace(/[^a-z0-9]/g, '') === 'generico');
+      expect(generico, 'un solo grupo canónico Genérico').toHaveLength(1);
+
+      // El count del grupo == lo que trae al tildar la marca (que ya funde ambas
+      // formas crudas). Es la suma de "Genérico" + "Generico".
+      expect(generico[0]!.count).toBe(await totalVia('/products', { brand: 'Genérico' }));
+    });
+  });
+
+  // ─── Exclusión de merge: Boss (Hugo Boss vs BOSS Audio Systems) ─────────────
+  //
+  // Ambas normalizan a `boss` por N3, pero son empresas distintas (perfume vs
+  // autoestéreo) y están en BRAND_MERGE_EXCLUSIONS. Se muestran separadas.
+  describe('exclusión Boss', () => {
+    it('brand_query=boss devuelve DOS entradas separadas, Boss y BOSS', async () => {
+      const brands = await facets({ brand_query: 'boss', limit: 50 });
+      const names = brands.map((b) => b.name);
+      expect(names).toContain('Boss');
+      expect(names).toContain('BOSS');
+    });
+
+    it('cada entrada de Boss cuenta solo su forma cruda (no la fusión)', async () => {
+      const brands = await facets({ brand_query: 'boss', limit: 50 });
+      for (const name of ['Boss', 'BOSS']) {
+        const facet = brands.find((b) => b.name === name)!;
+        expect(facet, `facet ${name}`).toBeDefined();
+        expect(facet.count).toBe(await totalVia('/products', { brand: name }));
+      }
     });
   });
 
