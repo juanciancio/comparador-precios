@@ -3,6 +3,7 @@ import type { DbError } from '../lib/db.ts';
 import { query } from '../lib/db.ts';
 import type { Logger } from '../lib/logger.ts';
 import type { ExtractedSku } from './extract.ts';
+import { computeHasPromo } from './transform.ts';
 
 export interface LoadResult {
   productsUpserted: number;
@@ -18,6 +19,7 @@ interface Effective {
   listPrice: number | null;
   hasPromo: boolean;
   promoDescription: string | null;
+  discountHighlight: string | null;
   isAvailable: boolean;
 }
 
@@ -28,6 +30,7 @@ interface CurrentRow {
   list_price: string | null;
   has_promo: boolean;
   promo_description: string | null;
+  discount_highlight: string | null;
   is_available: boolean;
 }
 
@@ -40,6 +43,7 @@ interface PhInsert {
   list_price: number | null;
   has_promo: boolean;
   promo_description: string | null;
+  discount_highlight: string | null;
   is_available: boolean;
 }
 
@@ -60,6 +64,11 @@ function unchanged(eff: Effective, cur: CurrentRow): boolean {
     listEqual &&
     eff.hasPromo === cur.has_promo &&
     (eff.promoDescription ?? null) === (cur.promo_description ?? null) &&
+    // Campo relevante: el highlight nombra el descuento aplicado y su vigencia
+    // ("...As14 al 20.7"). Que cambie de campaña sin mover el número SÍ es un
+    // cambio de estado del precio, y sin esto la fila vigente iría quedando con
+    // el nombre de una promo que ya venció. Mismo criterio que promo_description.
+    (eff.discountHighlight ?? null) === (cur.discount_highlight ?? null) &&
     eff.isAvailable === cur.is_available
   );
 }
@@ -74,6 +83,7 @@ function insertFrom(retailerId: number, ean: string, eff: Effective, today: stri
     list_price: eff.listPrice,
     has_promo: eff.hasPromo,
     promo_description: eff.promoDescription,
+    discount_highlight: eff.discountHighlight,
     is_available: eff.isAvailable,
   };
 }
@@ -101,7 +111,8 @@ export function loadRun(
 
       const curRows = await tx<CurrentRow[]>`
         SELECT ean, valid_from::text AS valid_from, price::text AS price,
-               list_price::text AS list_price, has_promo, promo_description, is_available
+               list_price::text AS list_price, has_promo, promo_description,
+               discount_highlight, is_available
         FROM price_history
         WHERE retailer_id = ${retailerId} AND valid_to IS NULL
       `;
@@ -145,19 +156,31 @@ export function loadRun(
             );
             continue;
           }
+          const carryListPrice = cur!.list_price !== null ? Number(cur!.list_price) : null;
           eff = {
             price: carryPrice,
-            listPrice: cur!.list_price !== null ? Number(cur!.list_price) : null,
-            hasPromo: false,
+            listPrice: carryListPrice,
+            // Derivado, no false: has_promo es función pura de (price, list_price),
+            // y ambos se arrastran. Hardcodear false acá dejaría filas que se
+            // contradicen a sí mismas (list_price > price con el flag apagado).
+            hasPromo: computeHasPromo(carryPrice, carryListPrice),
+            // La metadata de promo SÍ se limpia: no la estamos observando (el
+            // producto no está disponible), y arrastrarla afirmaría una promo
+            // vigente que no vimos. Un descuento sin metadata es normal (39% de
+            // los de Carrefour no traen ninguna).
             promoDescription: null,
+            discountHighlight: null,
             isAvailable: false,
           };
         } else {
+          const price = round2(row.price);
+          const listPrice = row.listPrice !== null ? round2(row.listPrice) : null;
           eff = {
-            price: round2(row.price),
-            listPrice: row.listPrice !== null ? round2(row.listPrice) : null,
-            hasPromo: row.hasPromo,
+            price,
+            listPrice,
+            hasPromo: computeHasPromo(price, listPrice),
             promoDescription: row.promoDescription,
+            discountHighlight: row.discountHighlight,
             isAvailable: true,
           };
         }
@@ -241,6 +264,7 @@ export function loadRun(
           UPDATE price_history SET
             price = ${u.eff.price}, list_price = ${u.eff.listPrice},
             has_promo = ${u.eff.hasPromo}, promo_description = ${u.eff.promoDescription},
+            discount_highlight = ${u.eff.discountHighlight},
             is_available = ${u.eff.isAvailable}, last_seen_at = NOW()
           WHERE retailer_id = ${retailerId} AND ean = ${u.ean} AND valid_to IS NULL
         `;

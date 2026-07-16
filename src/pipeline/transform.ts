@@ -1,6 +1,7 @@
 import type { Logger } from '../lib/logger.ts';
 import type { Result } from '../lib/result.ts';
 import { ok, err } from '../lib/result.ts';
+import type { VtexNamedEntry } from '../schemas/vtex-product.ts';
 import type { ExtractedSku } from './extract.ts';
 
 export type EanNormalizeError =
@@ -47,18 +48,63 @@ export function classifyBadEan(error: EanNormalizeError): BadEanReason {
   }
 }
 
+/** Clave con la que VTEX serializa `Name` cuando expone los backing fields de C#. */
+const BACKING_FIELD_NAME = '<Name>k__BackingField';
+
 /**
- * Arma promo_description a partir de los teasers. Los names se ORDENAN antes de
- * unir: VTEX puede devolver los teasers en orden inestable entre requests, y sin
- * el sort la misma promo generaría strings distintos -> falsos `changed` que
- * ensucian price_history con vigencias artificiales. Determinístico por diseño.
+ * Nombre de un entry de VTEX, venga como `Name` o como `<Name>k__BackingField`.
+ *
+ * VTEX serializa `Teasers` y `DiscountHighLight` con los backing fields de C# y
+ * `PromotionTeasers` con claves limpias, sin contrato que lo garantice. Leer solo
+ * `Name` es lo que dejó promo_description en NULL en las 47.358 filas de la tabla.
+ * `Name` tiene prioridad por ser la forma documentada; el backing field es fallback.
  */
-export function buildPromoDescription(
-  teasers: ReadonlyArray<{ Name?: string | null | undefined }>,
+export function vtexEntryName(entry: VtexNamedEntry): string | null {
+  return entry.Name?.trim() || entry[BACKING_FIELD_NAME]?.trim() || null;
+}
+
+/**
+ * Une los nombres de una o más listas de entries de VTEX en un string estable.
+ * Alimenta tanto `promo_description` (Teasers + PromotionTeasers) como
+ * `discount_highlight` (DiscountHighLight).
+ *
+ * Deduplica y ORDENA antes de unir, y las dos cosas son necesarias:
+ *  - sort: VTEX devuelve los teasers en orden inestable entre requests. Sin él,
+ *    la misma promo genera strings distintos -> falsos `changed` que ensucian
+ *    price_history con vigencias artificiales.
+ *  - dedupe: Teasers y PromotionTeasers son la misma promo serializada dos veces
+ *    (verificado: nombres idénticos en 11/11 ofertas del dump). Unirlas sin
+ *    deduplicar daría "Tarjeta Carrefour 15%; Tarjeta Carrefour 15%".
+ */
+export function joinVtexNames(
+  ...sources: ReadonlyArray<ReadonlyArray<VtexNamedEntry> | null | undefined>
 ): string | null {
-  const names = teasers.flatMap((t) => (t.Name ? [t.Name] : []));
-  if (names.length === 0) return null;
-  return names.sort().join('; ');
+  const names = new Set<string>();
+  for (const source of sources) {
+    for (const entry of source ?? []) {
+      const name = vtexEntryName(entry);
+      if (name) names.add(name);
+    }
+  }
+  if (names.size === 0) return null;
+  return [...names].sort().join('; ');
+}
+
+/**
+ * `has_promo` = hay un descuento REAL en el precio efectivo.
+ *
+ * Definición deliberada: `list_price > price`. La anterior era `Teasers.length > 0`,
+ * que significaba casi lo contrario — un teaser es un descuento de checkout que NO
+ * está aplicado a `price` (típicamente "Tarjeta Carrefour 15%"). Eso daba 12.450
+ * filas de Carrefour con has_promo = true y cero descuento, y 0 filas en Masonline
+ * (que no publica teasers) pese a tener 2.518 productos con descuento real.
+ * Ver research/precios-descuento/HALLAZGOS.md → P4.
+ *
+ * Es función pura de price/list_price, así que vale igual en la ruta de arrastre
+ * de load.ts: toda fila de price_history cumple has_promo === (list_price > price).
+ */
+export function computeHasPromo(price: number, listPrice: number | null): boolean {
+  return listPrice !== null && listPrice > price;
 }
 
 /**

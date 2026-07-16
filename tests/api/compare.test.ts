@@ -8,6 +8,10 @@ const http = useTestApp();
 interface Row {
   ean: string;
   brand: string | null;
+  masonline_price: number;
+  masonline_list_price: number | null;
+  carrefour_price: number;
+  carrefour_list_price: number | null;
   diff_pct: number;
   cheaper: 'masonline' | 'carrefour' | 'tie';
 }
@@ -58,5 +62,48 @@ describe('GET /compare', () => {
       expect(r.cheaper).toBe('tie');
       expect(Math.abs(r.diff_pct)).toBeLessThanOrEqual(DIFF_TIE_TOLERANCE_PCT);
     }
+  });
+});
+
+describe('GET /compare — precios de lista', () => {
+  it('expone *_list_price de ambas cadenas, poblado y nunca por debajo del efectivo', async () => {
+    const res = await request(http()).get('/compare').query({ limit: 100 });
+    expect(res.status).toBe(200);
+    expect(res.body.data.length).toBeGreaterThan(0);
+    for (const r of res.body.data as Row[]) {
+      // El contrato los declara nullable (la columna lo admite), pero la captura
+      // del scraper los puebla al 100%: un null acá es señal de bug, no de dato.
+      expect(r.masonline_list_price).not.toBeNull();
+      expect(r.carrefour_list_price).not.toBeNull();
+      expect(typeof r.masonline_list_price).toBe('number');
+      expect(typeof r.carrefour_list_price).toBe('number');
+      // list < price no se observó nunca en 47.358 filas: sería un descuento negativo.
+      expect(r.masonline_list_price!).toBeGreaterThanOrEqual(r.masonline_price);
+      expect(r.carrefour_list_price!).toBeGreaterThanOrEqual(r.carrefour_price);
+    }
+  });
+
+  it('diff_pct sigue calculándose sobre price, no sobre el precio de lista', async () => {
+    const res = await request(http())
+      .get('/compare')
+      .query({ sort_by: 'diff_pct_abs', sort_dir: 'desc', limit: 30 });
+    expect(res.status).toBe(200);
+    for (const r of res.body.data as Row[]) {
+      const fromEffective = ((r.carrefour_price - r.masonline_price) / r.masonline_price) * 100;
+      expect(r.diff_pct).toBeCloseTo(fromEffective, 1);
+    }
+  });
+
+  it('hay matches donde el precio de lista difiere del efectivo (canario del descuento)', async () => {
+    // Si esto da 0, o el scraper dejó de capturar ListPrice o VTEX dejó de
+    // descontar: en ambos casos queremos enterarnos por un test, no por un usuario.
+    const res = await request(http()).get('/compare').query({ limit: 100 });
+    expect(res.status).toBe(200);
+    const withDiscount = (res.body.data as Row[]).filter(
+      (r) =>
+        (r.masonline_list_price ?? 0) > r.masonline_price ||
+        (r.carrefour_list_price ?? 0) > r.carrefour_price,
+    );
+    expect(withDiscount.length).toBeGreaterThan(0);
   });
 });

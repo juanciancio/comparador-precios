@@ -28,12 +28,26 @@ export class CompareQueryDto extends createZodDto(CompareQuerySchema) {}
 // ─── Response shapes ─────────────────────────────────────────────────────────
 
 // snake_case en *_price y diff_pct fijado por contrato (ver CLAUDE.md).
+//
+// `*_list_price` es el precio de lista (tachado) de cada cadena; `*_price` es el
+// efectivo, con los descuentos que VTEX ya aplicó. Cuando difieren, el efectivo
+// puede depender de una condición que el usuario no cumple (ej. tarjeta Mi Crf):
+// list > price en 44,7% del catálogo vigente de Carrefour y 20,1% del de Masonline.
+// Ver research/precios-descuento/HALLAZGOS.md.
+//
+// Nullable a propósito: price_history.list_price admite NULL. Hoy son 0 filas de
+// 47.358, pero el contrato no puede prometer lo que la columna no garantiza.
+//
+// `diff_pct` y `cheaper` siguen calculándose sobre `price`, sin cambios. Comparar
+// sobre precios de lista es una decisión de producto de Fase B4, no de esta capa.
 export const CompareRowSchema = z.object({
   ean: z.string(),
   name: z.string(),
   brand: z.string().nullable(),
   masonline_price: z.number(),
+  masonline_list_price: z.number().nullable(),
   carrefour_price: z.number(),
+  carrefour_list_price: z.number().nullable(),
   diff_pct: z.number(),
   cheaper: z.enum(['masonline', 'carrefour', 'tie']),
 });

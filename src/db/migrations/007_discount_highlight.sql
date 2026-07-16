@@ -1,0 +1,21 @@
+-- `DiscountHighLight`: el campo con el que VTEX nombra el descuento YA APLICADO a
+-- `price`, con su condición y vigencia embebidas en el string. Ej. del EAN testigo
+-- 7896009419294: "PROMO-25% Off Mi Crf -Reg-1-25-As14 al 20.7" — nombra el
+-- descuento (25% off), la condición (Mi Crf = fidelidad) y la ventana (14 al 20/7).
+-- Es el único dato que responde "¿por qué este precio?" y lo veníamos tirando.
+-- Ver research/precios-descuento/HALLAZGOS.md → P4.
+--
+-- Va SOLO en price_history, no en products, aunque el brief original pedía las dos.
+-- products es por-EAN y compartida entre cadenas: un highlight de Carrefour ahí
+-- pisaría al de Masonline en cada corrida, replicando la volatilidad conocida de
+-- category_path (ver CLAUDE.md → "Nota sobre volatilidad de category_path"). El
+-- highlight es estado de precio: por retailer y por vigencia. Este es su lugar.
+--
+-- Se guarda CRUDO, sin parsear. El string es una convención interna del retailer
+-- escrita a mano por marketing, sin contrato: parsearlo es frágil. Guardarlo tal
+-- cual preserva la información para cuando decidamos qué hacer con ella.
+--
+-- Sin retro-poblado: no tenemos el dato histórico y no se puede reconstruir. Las
+-- filas previas al deploy quedan en NULL de forma permanente. La data limpia
+-- arranca en la primera corrida post-deploy.
+ALTER TABLE price_history ADD COLUMN IF NOT EXISTS discount_highlight TEXT;

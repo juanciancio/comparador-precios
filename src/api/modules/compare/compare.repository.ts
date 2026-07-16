@@ -29,7 +29,9 @@ interface RawCompareRow {
   name: string;
   brand: string | null;
   masonline_price: string;
+  masonline_list_price: string | null;
   carrefour_price: string;
+  carrefour_list_price: string | null;
   diff_pct: string;
 }
 
@@ -95,7 +97,9 @@ export class CompareRepository {
       SELECT
         p.ean, p.name_canonical AS name, p.brand,
         m.price::text AS masonline_price,
+        m.list_price::text AS masonline_list_price,
         c.price::text AS carrefour_price,
+        c.list_price::text AS carrefour_list_price,
         ROUND(((c.price - m.price) / m.price * 100)::numeric, 2)::text AS diff_pct
       ${fromWhere}
       ORDER BY ${orderExpr} ${orderDir} NULLS LAST, p.ean ASC
@@ -113,7 +117,9 @@ export class CompareRepository {
         name: r.name,
         brand: r.brand,
         masonline_price: Number(r.masonline_price),
+        masonline_list_price: r.masonline_list_price !== null ? Number(r.masonline_list_price) : null,
         carrefour_price: Number(r.carrefour_price),
+        carrefour_list_price: r.carrefour_list_price !== null ? Number(r.carrefour_list_price) : null,
         diff_pct: diffPct,
         cheaper: cheaperOf(diffPct),
       };

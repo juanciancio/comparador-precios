@@ -53,15 +53,24 @@ Detalle completo, schemas y ejemplos en **`/docs`**. Resumen:
 | `POST` | `/products/:ean/refresh` | Refresh on-demand contra los retailers (TTL comunitario, ver nota abajo). |
 | `GET` | `/search` | Búsqueda por nombre/marca (multi-término, ILIKE). Requiere `q` (≥2 chars). |
 | `GET` | `/search/facets` | Marcas + conteo dentro de un scope, para el sidebar de filtros. Mismos filtros de scope que `/search` y `/products` (`q`, `category_top`, `only_matched`), contados **antes** del filtro de marca. Filtros propios: `brand_query`, `limit` (max 50). |
-| `GET` | `/compare` | Comparación cross-retailer por EAN. Excluye marca "Genérico". Filtros: `brand`, `category`, `min_diff_pct`, `cheaper_at`, `sort_by`. |
+| `GET` | `/compare` | Comparación cross-retailer por EAN. Excluye marca "Genérico". Devuelve precio efectivo (`*_price`) y de lista (`*_list_price`) de cada cadena; `diff_pct` se calcula sobre el efectivo. Filtros: `brand`, `category`, `min_diff_pct`, `cheaper_at`, `sort_by`. |
 | `GET` | `/compare/stats` | Estadísticas globales del match (histograma de \|diff%\|, quién es más barato, exclusivos). |
 | `GET` | `/categories` | Categorías con conteo de productos (cacheado 5 min). |
 | `GET` | `/brands` | Marcas con conteo de productos y de matches cross-retailer (cacheado 5 min). Filtros: `limit`, `min_products`. |
 
 **Convenciones:** query params en `snake_case`, response bodies en `camelCase`
-(salvo el contrato fijo `masonline_price`/`carrefour_price`/`diff_pct` del compare
-y `was_refreshed`/`updated_at` del refresh). Fechas de presentación en
-`America/Argentina/Buenos_Aires`.
+(salvo el contrato fijo `masonline_price`/`masonline_list_price`/`carrefour_price`/
+`carrefour_list_price`/`diff_pct` del compare y `was_refreshed`/`updated_at` del
+refresh). Fechas de presentación en `America/Argentina/Buenos_Aires`.
+
+**Precio efectivo vs. precio de lista.** Todo endpoint que devuelve precio devuelve
+los dos: `price`/`listPrice` en el array `retailers` (y en el price-history), o
+`*_price`/`*_list_price` en `/compare`. **`price` es el efectivo, con los descuentos
+que VTEX ya aplicó** — puede depender de una condición que el usuario no cumple (ej.
+la tarjeta "Mi Crf" de Carrefour). `list > price` en 44,7% del catálogo vigente de
+Carrefour y 20,1% del de Masonline, así que la distinción no es marginal. Los
+ordenamientos y `diff_pct` se calculan sobre `price`. Ver
+`research/precios-descuento/HALLAZGOS.md`.
 
 **Errores:** shape unificado con `trace_id` para correlación con los logs:
 

@@ -35,6 +35,15 @@ Estos puntos ya se verificaron manualmente contra los sitios reales. Son la base
 
 13. **Los precios en retailers VTEX argentinos pueden cambiar varias veces al día.** El scrape diario captura snapshots correctos al momento de la corrida; el precio real en el sitio puede diferir horas después. Verificado 14/07/2026 con Motorola G67 (EAN `7790894902018`): scrape de las 6AM leyó `Price = 499999`, verificación en la web a las 10AM mostraba `$599.999`, y el payload de VTEX confirmó `Price = 599999` (`ListPrice`, `PriceWithoutDiscount`, `FullSellingPrice` todos coincidían). No es bug del pipeline — es frecuencia de sampleo. **Implicancia arquitectónica**: (a) el frontend debe mostrar timestamp "actualizado hace X" en toda vista de precio; (b) se implementa refresh on-demand con TTL comunitario 60s en Fase B (`POST /products/:ean/refresh`); (c) SSE broadcast comunitario planificado para post-lanzamiento (Fase 3.C). Ver detalles en `docs/NEXT_SESSION.md` → "Arquitectura de refresh de precios".
 
+14. **VTEX serializa parte del `commertialOffer` con backing fields de C#, y `Teasers` ≠ `DiscountHighLight` en significado.** Dos hechos independientes, ambos verificados contra payloads reales (15/07/2026):
+
+    **(a) Serialización.** `Teasers` y `DiscountHighLight` vienen con las claves internas del compilador de C# (`<Name>k__BackingField`), no con `Name`. `PromotionTeasers` viene con claves limpias y **mismo contenido** que `Teasers` (nombres idénticos en 11/11 ofertas del dump). Leer solo `Name` es lo que dejó `promo_description` en NULL en las 47.358 filas de la tabla durante toda la Fase 1-2, en silencio. **Todo entry con nombre se parsea con `vtexNamedEntrySchema` + `vtexEntryName`, que aceptan ambas formas** — no hay contrato de VTEX que fije cuál usa cada campo. `Teasers` y `PromotionTeasers` se consumen **las dos** (`joinVtexNames` deduplica), para no depender de cuál serializa bien VTEX hoy.
+
+    **(b) Semántica — la regla que importa:** **`DiscountHighLight` = descuento YA aplicado a `Price`. `Teasers` = descuento NO aplicado, disponible en checkout bajo condición.** Por eso el 97,7% de los productos *sin* descuento tienen teasers: es el "Tarjeta Carrefour 15%" que no se aplicó. Confundirlos es exactamente el bug que tuvo `has_promo` hasta el 15/07/2026. `DiscountHighLight` además nombra la condición y la vigencia dentro del string (`"PROMO-25% Off Mi Crf -Reg-1-25-As14 al 20.7"`), y **la vigencia real vive ahí, no en `PriceValidUntil`** (que es un placeholder: hoy+1año en Carrefour, `2050-01-01` en Masonline).
+
+    **Asimetría entre cadenas:** Masonline **no expone nada** — cero `Teasers`, cero `DiscountHighLight`. Sus descuentos (20,1% del catálogo) son `list > price` sin explicación posible con los endpoints actuales. Cualquier feature que dependa de metadata de promo funciona **solo para Carrefour**. Ver `research/precios-descuento/HALLAZGOS.md`.
+
+
 ---
 
 ## Endpoints VTEX que usamos (los únicos)
@@ -96,12 +105,16 @@ Cada elemento del array de productos:
       sellerId: string,
       sellerDefault: boolean,
       commertialOffer: {
-        Price: number,               // precio final que paga el cliente
+        Price: number,               // precio EFECTIVO: descuentos ya aplicados
         ListPrice: number,           // precio de lista (tachado)
         PriceWithoutDiscount: number,
         AvailableQuantity: number,
         IsAvailable: boolean,
-        Teasers: Array<{ Name: string, ... }>   // promos activas
+        // ⚠️ Serializados con backing fields de C#: la clave es `<Name>k__BackingField`,
+        // NO `Name`. Ver punto 14 de "Descubrimientos técnicos ya validados".
+        Teasers: Array<{ '<Name>k__BackingField': string, ... }>,        // NO aplicados a Price
+        PromotionTeasers: Array<{ Name: string, ... }>,                  // idem, claves limpias
+        DiscountHighLight: Array<{ '<Name>k__BackingField': string }>,   // SÍ aplicado a Price
       }
     }>
   }>
@@ -227,10 +240,11 @@ CREATE TABLE price_history (
   ean               TEXT NOT NULL REFERENCES products(ean),
   valid_from        DATE NOT NULL,           -- primer día que rige este precio
   valid_to          DATE,                    -- último día vigente (NULL = precio actual)
-  price             NUMERIC(12, 2) NOT NULL,
-  list_price        NUMERIC(12, 2),
-  has_promo         BOOLEAN NOT NULL DEFAULT false,
-  promo_description TEXT,
+  price             NUMERIC(12, 2) NOT NULL,   -- efectivo: descuentos YA aplicados
+  list_price        NUMERIC(12, 2),             -- de lista (tachado). list > price = descuento
+  has_promo         BOOLEAN NOT NULL DEFAULT false,  -- derivado: (list_price > price)
+  promo_description TEXT,                       -- Teasers: descuentos NO aplicados a price
+  discount_highlight TEXT,                      -- DiscountHighLight: nombra el descuento SÍ aplicado
   is_available      BOOLEAN NOT NULL,
   first_seen_at     TIMESTAMPTZ NOT NULL DEFAULT NOW(),
   last_seen_at      TIMESTAMPTZ NOT NULL DEFAULT NOW(),
@@ -291,9 +305,29 @@ Cambio en cualquiera de estos dispara nueva fila:
 - `list_price`
 - `has_promo`
 - `promo_description`
+- `discount_highlight`
 - `is_available`
 
 Cambio en `last_seen_at` NO dispara nueva fila (es solo telemetría).
+
+`discount_highlight` es relevante porque el string nombra el descuento **y su
+vigencia** (`"...As14 al 20.7"`): que cambie la campaña sin moverse el número sigue
+siendo un cambio de estado del precio, y sin esto la fila vigente iría quedando con
+el nombre de una promo ya vencida. Mismo criterio que `promo_description`.
+
+### `has_promo` es derivado, no observado
+
+**`has_promo === (list_price > price)`. Es un invariante de toda fila que escribe el
+scraper**, no una convención. Se calcula con `computeHasPromo` (`transform.ts`) dentro
+de `load`, sobre los valores **ya redondeados que se están por escribir** — nunca en
+`extract` sobre los crudos, o el redondeo podría hacer discrepar el flag de las
+columnas que lo definen. Por eso `hasPromo` NO vive en `ExtractedSku`.
+
+Ojo con el histórico: hasta el 15/07/2026 `has_promo` significaba `Teasers.length > 0`,
+que es casi lo contrario (un teaser es un descuento de checkout **no** aplicado a
+`price`). Daba 12.450 filas de Carrefour con `has_promo = true` y cero descuento, y 0
+filas en Masonline pese a sus 2.518 productos con descuento real. Ver
+`research/precios-descuento/HALLAZGOS.md` → P4.
 
 ### Manejo de transiciones de disponibilidad
 
@@ -303,8 +337,9 @@ Cambio en `last_seen_at` NO dispara nueva fila (es solo telemetría).
 
 - `price`: se arrastra el `price` de la fila vigente que estamos cerrando (último precio observable).
 - `list_price`: idem, se arrastra.
-- `has_promo`: `false` (un producto no disponible no tiene promo activa).
-- `promo_description`: `NULL`.
+- `has_promo`: **derivado de los precios arrastrados** (`list_price > price`), no `false`. Es función pura de dos columnas de la misma fila: hardcodearlo en `false` dejaría filas que se contradicen a sí mismas. Ver "`has_promo` es derivado, no observado".
+- `promo_description`: `NULL`. A diferencia de los precios, la metadata de promo NO se arrastra: no la estamos observando, y arrastrarla afirmaría una promo vigente que no vimos. Un descuento sin metadata es normal (39% de los de Carrefour no traen ninguna).
+- `discount_highlight`: `NULL`, por el mismo motivo.
 - `is_available`: `false`.
 - `valid_from`: today, `valid_to`: `NULL`.
 

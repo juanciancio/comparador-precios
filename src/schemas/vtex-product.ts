@@ -7,8 +7,22 @@ import { z } from 'zod';
  * se skipea con warning en `extract`, no cae el pipeline.
  */
 
-export const vtexTeaserSchema = z.object({
-  Name: z.string().optional(),
+/**
+ * Entry de VTEX con nombre (teaser, promotion teaser, discount highlight).
+ *
+ * VTEX serializa parte del `commertialOffer` con los backing fields de C#
+ * (`<Name>k__BackingField`) en vez de `Name`. Verificado en Carrefour: `Teasers`
+ * y `DiscountHighLight` vienen SIEMPRE con backing fields; `PromotionTeasers`
+ * viene con claves limpias. No hay contrato que garantice cuál usa cada campo,
+ * así que se aceptan ambas formas en todos: si VTEX cambia de vuelta, el parseo
+ * sigue funcionando en lugar de devolver null en silencio (que es exactamente
+ * cómo este bug vivió 47.358 filas sin que nadie lo notara).
+ *
+ * El nombre se resuelve con `vtexEntryName` en transform.ts.
+ */
+export const vtexNamedEntrySchema = z.object({
+  Name: z.string().nullable().optional(),
+  '<Name>k__BackingField': z.string().nullable().optional(),
 });
 
 export const vtexCommercialOfferSchema = z.object({
@@ -17,7 +31,13 @@ export const vtexCommercialOfferSchema = z.object({
   PriceWithoutDiscount: z.number().nullable().optional(),
   AvailableQuantity: z.number(),
   IsAvailable: z.boolean(),
-  Teasers: z.array(vtexTeaserSchema).default([]),
+  // Mismo contenido, distinta serialización: Teasers usa backing fields,
+  // PromotionTeasers claves limpias. Se leen las dos y se unen (ver extract).
+  Teasers: z.array(vtexNamedEntrySchema).default([]),
+  PromotionTeasers: z.array(vtexNamedEntrySchema).nullable().default([]),
+  // Nombra el descuento YA aplicado a Price (a diferencia de los teasers, que
+  // ofrecen descuentos de checkout NO aplicados). Ver migración 007.
+  DiscountHighLight: z.array(vtexNamedEntrySchema).nullable().default([]),
 });
 
 export const vtexSellerSchema = z.object({
@@ -56,3 +76,4 @@ export type VtexProduct = z.infer<typeof vtexProductSchema>;
 export type VtexItem = z.infer<typeof vtexItemSchema>;
 export type VtexSeller = z.infer<typeof vtexSellerSchema>;
 export type VtexCommercialOffer = z.infer<typeof vtexCommercialOfferSchema>;
+export type VtexNamedEntry = z.infer<typeof vtexNamedEntrySchema>;

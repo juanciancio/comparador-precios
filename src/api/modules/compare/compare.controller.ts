@@ -8,6 +8,27 @@ import {
 } from './dto/compare.dto.ts';
 import { CompareService } from './compare.service.ts';
 
+// Valores reales del EAN testigo de research/precios-descuento (15/07/2026).
+// Ilustra el caso que motiva exponer *_list_price: Carrefour aparece 25% más
+// barato, pero ese precio efectivo viene de un descuento de fidelidad "Mi Crf"
+// que VTEX ya aplicó. Contra precios de lista, las dos cadenas casi empatan.
+const COMPARE_EXAMPLE = {
+  data: [
+    {
+      ean: '7896009419294',
+      name: 'Crema Dental Sensodyne Multiproteccion X 90g',
+      brand: 'Sensodyne',
+      masonline_price: 6309,
+      masonline_list_price: 6309,
+      carrefour_price: 4725,
+      carrefour_list_price: 6300,
+      diff_pct: -25.11,
+      cheaper: 'carrefour',
+    },
+  ],
+  pagination: { limit: 20, offset: 0, total: 3421 },
+};
+
 @ApiTags('Compare')
 @Controller('compare')
 export class CompareController {
@@ -23,9 +44,20 @@ export class CompareController {
       '**La marca "Genérico" se excluye por convención**: es una marca-catchall ' +
       'que cada cadena usa distinto (un mismo EAN puede referir productos físicos ' +
       'diferentes), así que no es comparable cross-retailer. Filtros por marca, ' +
-      'categoría, `min_diff_pct` y `cheaper_at`; ordenable por diferencia o nombre.',
+      'categoría, `min_diff_pct` y `cheaper_at`; ordenable por diferencia o nombre.\n\n' +
+      '**`*_price` vs `*_list_price`:** `*_price` es el precio efectivo, con los ' +
+      'descuentos que VTEX ya aplicó; `*_list_price` es el de lista (tachado). ' +
+      'Cuando difieren, el efectivo puede depender de una condición que el usuario ' +
+      'no cumple (ej. la tarjeta "Mi Crf" de Carrefour). La brecha es sistémica: ' +
+      '`list > price` en 44,7% del catálogo vigente de Carrefour y 20,1% del de ' +
+      'Masonline. **`diff_pct` y `cheaper` se calculan sobre `price`**, no sobre el ' +
+      'precio de lista.',
   })
-  @ApiOkResponse({ type: CompareResponseDto, description: 'Página de comparaciones + paginación.' })
+  @ApiOkResponse({
+    type: CompareResponseDto,
+    description: 'Página de comparaciones + paginación.',
+    example: COMPARE_EXAMPLE,
+  })
   @ApiBadRequest()
   @ApiServerError()
   list(@Query() query: CompareQueryDto): Promise<CompareResponseDto> {

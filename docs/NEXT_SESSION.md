@@ -7,17 +7,13 @@
 
 ## 1. Estado actual del proyecto
 
-- **🔴 Investigación de descuentos COMPLETA (15/07/2026) — sesión de diseño pendiente
-  con Juan.** Hallazgos en `research/precios-descuento/HALLAZGOS.md`. Resumen: el
-  `price` que mostramos es el **efectivo con descuentos ya aplicados**; `list_price`
-  ya está en la DB (100% poblado) pero nunca se expone. Brecha `list > price` en
-  **44,7%** del catálogo Carrefour y **20,1%** de Masonline. Al menos ~10% de los
-  descuentos de Carrefour son demostrablemente condicionales (fidelidad "Mi Crf"),
-  nombrados en `DiscountHighLight` — campo que **no capturamos**. Masonline no expone
-  metadata de promo alguna. **Bug detectado y NO corregido** (fuera de scope de esa
-  sesión): `promo_description` es NULL en las 47.358 filas por serialización de
-  backing fields de C# en `Teasers`. **No tomar decisiones de UI/schema antes de la
-  sesión de diseño.**
+- **✅ Base técnica de descuentos COMPLETA (15/07/2026).** Los cuatro hallazgos
+  accionables de `research/precios-descuento/HALLAZGOS.md` están implementados. Ver
+  sección 2 abajo para el detalle y para la **ventana de inconsistencia de 24-48hs**.
+  Lo que queda abierto de la investigación es de **producto, no técnico**: qué precio
+  mostrar, qué hacer con el ~39% de descuentos de Carrefour sin metadata y el 100% de
+  Masonline (indeterminables), y si se parsea el string de `DiscountHighLight`. Eso se
+  decide en Fase B4.
 - **Fase 2 cerrada:** scrapers Masonline + Carrefour en autopilot vía GitHub
   Actions (`daily-scrape.yml`, 04:00 ART) + health check semanal. Se alimenta solo.
 - **Fase 3.A COMPLETA (14/07/2026) — API HTTP (NestJS):** montada en el mismo repo
@@ -40,7 +36,122 @@ y convenciones.
 
 ---
 
-## 2. Sesión anterior (Fase A) — qué quedó hecho
+## 2. Sesión 15/07/2026 — base técnica de descuentos
+
+Cuatro cambios, derivados de `research/precios-descuento/HALLAZGOS.md`.
+
+### 2.1 Fix del bug de deserialización de Teasers ✅
+
+VTEX serializa `Teasers` con los backing fields de C# (`<Name>k__BackingField`), no
+con `Name`. El schema Zod buscaba `Name`, nunca matcheaba, y `promo_description`
+quedó **NULL en las 47.358 filas** de la tabla sin que nadie lo notara.
+
+- `vtexNamedEntrySchema` (`src/schemas/vtex-product.ts`) acepta **ambas** formas.
+  `vtexEntryName` resuelve el nombre; `Name` tiene prioridad, el backing field es
+  fallback. Si VTEX vuelve a cambiar la serialización, sigue funcionando.
+- **Se consumen `Teasers` Y `PromotionTeasers`**, no una u otra. Son la misma promo
+  con distinta serialización (verificado: nombres idénticos en 11/11 ofertas del
+  dump, `PromotionTeasers` con claves limpias). `joinVtexNames` las une y
+  **deduplica**, así que leer las dos no duplica el string y cubre el caso de que
+  VTEX deje de mandar cualquiera de las dos.
+- `DiscountHighLight` **también usa backing fields** — no estaba en el brief, se
+  detectó revisando el dump. Usa el mismo parseo.
+
+### 2.2 Captura de `DiscountHighLight` ✅
+
+Es el campo que nombra el descuento **ya aplicado** a `price`, con condición y
+vigencia en el string: `"PROMO-25% Off Mi Crf -Reg-1-25-As14 al 20.7"`.
+
+- Migración `007_discount_highlight.sql`: `price_history.discount_highlight TEXT`.
+- **Va solo en `price_history`, no en `products`** (el brief pedía ambas). `products`
+  es por-EAN y compartida entre cadenas: un highlight de Carrefour ahí pisaría al de
+  Masonline en cada corrida, replicando la volatilidad conocida de `category_path`.
+  El highlight es estado de precio: por retailer, por vigencia.
+- Se guarda **crudo, sin parsear**. El string es convención interna del retailer
+  escrita a mano, sin contrato. Parsearlo es frágil; guardarlo preserva el dato para
+  cuando Fase B4 decida qué hacer con él.
+- **Es campo relevante** para el modelo de vigencias: si cambia la campaña sin mover
+  el número, sigue siendo un cambio de estado del precio. Mismo criterio que
+  `promo_description`.
+- **Sin retro-poblado** — no tenemos el histórico y no se puede reconstruir. Las
+  filas previas quedan en NULL permanente. La data limpia arranca en la primera
+  corrida post-deploy.
+
+### 2.3 Semántica honesta de `has_promo` ✅
+
+Antes: `Teasers.length > 0`, que significaba casi lo **contrario** de lo que parece.
+Un teaser es un descuento de checkout que **no** está aplicado a `price` (típicamente
+"Tarjeta Carrefour 15%"). Daba 12.450 filas de Carrefour con `has_promo = true` y
+cero descuento, y **0 filas en Masonline** pese a sus 2.518 productos con descuento
+real.
+
+Ahora: **`has_promo = (list_price > price)`** (`computeHasPromo` en `transform.ts`).
+
+- Se deriva en `load`, sobre los valores **ya redondeados que se escriben** — no en
+  `extract` sobre los crudos. Por eso `hasPromo` salió de `ExtractedSku`: no se
+  captura de VTEX, se deriva, y tener dos fuentes de verdad permitía que
+  discreparan por redondeo.
+- **También en la ruta de arrastre** (producto no disponible). `load` hardcodeaba
+  `has_promo: false` ahí; con la definición nueva eso dejaría filas que se
+  contradicen a sí mismas (`list_price > price` con el flag apagado). El invariante
+  **`has_promo === (list_price > price)` vale sobre toda fila que el scraper escribe**,
+  y hay un test que lo verifica.
+- `promo_description` y `discount_highlight` **sí** se limpian en el arrastre: no los
+  estamos observando, y arrastrarlos afirmaría una promo vigente que no vimos.
+
+### 2.4 `list_price` en la API ✅
+
+**El brief asumía que no estaba expuesto; ya lo estaba.** `RetailerOfferSchema` y
+`PriceHistoryEntrySchema` incluyen `listPrice` (además de `hasPromo` y
+`promoDescription`) desde Fase 3.A. O sea que `/products`, `/products/:ean`,
+`/products/:ean/price-history`, `/products/recent-changes`, `/search` y
+`/products/:ean/refresh` **siempre** lo devolvieron — el frontend nunca lo consumió.
+
+- El único que faltaba era **`/compare`**, que tenía shape propio de precios. Se le
+  agregaron **`masonline_list_price` y `carrefour_list_price`** (snake_case, según el
+  contrato ya fijado para `*_price`). Nullable: la columna lo admite, aunque hoy sean
+  0 NULLs de 47.358 filas.
+- **`diff_pct` y `cheaper` siguen sobre `price`, sin cambios.** Comparar sobre precios
+  de lista es decisión de producto de Fase B4.
+- `hasPromo`/`promoDescription` **quedan expuestos** (decisión de Juan). Removerlos
+  sería breaking; el fix los mejora solos: `promoDescription` pasa de NULL a poblado y
+  `hasPromo` de basura a dato honesto. El shape no cambia.
+
+### ⚠️ Ventana de inconsistencia post-deploy (24-48hs)
+
+`has_promo` se corrige **fila por fila, a medida que el scraper reescribe cada
+producto**. No hubo backfill destructivo: el ciclo diario limpia solo. Durante las
+primeras 24-48hs conviven filas con semántica vieja y nueva.
+
+- La corrección es automática: `unchanged()` compara el `has_promo` nuevo contra el
+  almacenado, así que una fila con semántica vieja da "cambió" y se reescribe.
+- Las filas que el scraper **no** toca (productos desaparecidos del catálogo)
+  conservan el `has_promo` viejo hasta que el reaping las cierre. Por eso el test del
+  invariante se acota a `is_available`.
+- Ese primer ciclo genera **más vigencias nuevas de lo normal** (`has_promo` y
+  `discount_highlight` cambian para muchas filas sin que el precio se haya movido).
+  Es esperado, es de una sola vez, y no es drift de precios.
+
+### Perf
+
+- **Scraper: +0,002% del tiempo total de corrida.** El costo agregado es parsear dos
+  arrays más por oferta. Medido sobre los dumps reales (viejo vs nuevo, mismo
+  payload): el parseo de una oferta pasa de 0,00203ms a 0,00328ms, **+61,9% en
+  relativo pero +0,14s en absoluto** sobre las 108.781 ofertas de Carrefour, contra
+  una corrida de ~110 min. El pipeline está dominado por I/O de red y paginación
+  secuencial: `extract` entero es el **0,03%** del tiempo (2,2s de CPU). Muy por
+  debajo del techo de 10-15%. Los benchmarks son reproducibles contra
+  `research/precios-descuento/dumps/`.
+- **API: sin regresión.** `/compare` agrega dos columnas del mismo `JOIN` que ya se
+  hacía: sin queries nuevas, sin JOINs nuevos. Medido con la query real
+  (`limit=100`, 12 corridas, mediana): **98,3ms con `list_price` vs 107,8ms sin** —
+  el "nuevo" sale más rápido, o sea que la diferencia es ruido de medición. `EXPLAIN
+  (ANALYZE, BUFFERS)` confirma el **mismo plan**. Los otros cinco endpoints no
+  cambiaron de shape, así que no hay nada que medir en ellos.
+
+---
+
+## 3. Sesión anterior (Fase A) — qué quedó hecho
 
 - **Bootstrap NestJS con runtime SWC** (`@swc-node/register`, NO tsx — esbuild no
   emite decorator metadata y rompe la DI de Nest; detalle en `CLAUDE.md`).
@@ -59,7 +170,7 @@ y convenciones.
 
 ---
 
-## 3. Próximos pasos en orden
+## 4. Próximos pasos en orden
 
 Fase 3.A (Fases A→E) está **completa**. Lo que sigue:
 
@@ -115,7 +226,7 @@ Si 500 usuarios abren el mismo producto en 10 segundos (por ejemplo, un influenc
 
 ---
 
-## 4. Contexto operativo
+## 5. Contexto operativo
 
 - Sistema de scraping funcionando: `LATEST_RUN.md` tiene el estado diario.
 - Dataset actual: ~12k productos Masonline, ~26k Carrefour, ~3.9k matches
@@ -125,7 +236,7 @@ Si 500 usuarios abren el mismo producto en 10 segundos (por ejemplo, un influenc
 
 ---
 
-## 5. Monetización (postponed — decisión estratégica, no se codea ahora)
+## 6. Monetización (postponed — decisión estratégica, no se codea ahora)
 
 - **No hay monetización activa en esta fase.** Los ~$5-40/mes de infra los cubre
   Juan como inversión.
@@ -141,7 +252,7 @@ Si 500 usuarios abren el mismo producto en 10 segundos (por ejemplo, un influenc
 
 ---
 
-## 6. Convenciones ya establecidas (no reinventar)
+## 7. Convenciones ya establecidas (no reinventar)
 
 - TS estricto, cero `any`.
 - Zod para todo input, sin `class-validator`.
@@ -154,7 +265,7 @@ Si 500 usuarios abren el mismo producto en 10 segundos (por ejemplo, un influenc
 
 ---
 
-## 7. Aprendizajes de data / debugging (tener presente)
+## 8. Aprendizajes de data / debugging (tener presente)
 
 - **Los precios en retailers argentinos se mueven intradiariamente.** Nuestro
   scrape diario captura snapshots; la data puede envejecer varias horas antes del

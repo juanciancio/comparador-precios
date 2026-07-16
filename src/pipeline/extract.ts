@@ -3,7 +3,7 @@ import {
   normalizeEan,
   normalizeBrand,
   classifyBadEan,
-  buildPromoDescription,
+  joinVtexNames,
   type BadEanReason,
 } from './transform.ts';
 
@@ -19,9 +19,14 @@ export interface ExtractedSku {
   productUrl: string;
   price: number; // crudo observado (VTEX manda 0 en no disponibles)
   listPrice: number | null;
-  hasPromo: boolean;
   promoDescription: string | null;
+  /** Nombre crudo del descuento aplicado a `price`, si VTEX lo expone. */
+  discountHighlight: string | null;
   isAvailable: boolean;
+  // `hasPromo` NO vive acá: no se captura de VTEX, se deriva de (price, listPrice).
+  // Lo calcula `load` sobre los valores ya redondeados que efectivamente escribe,
+  // así el invariante has_promo === (list_price > price) vale sobre lo guardado y
+  // no sobre lo observado. Ver computeHasPromo en transform.ts.
 }
 
 export type ExtractWarning =
@@ -88,8 +93,10 @@ export function extractSkus(raw: unknown, host: string): ExtractResult {
       productUrl: `https://${host}/${product.linkText}/p`,
       price: offer.Price,
       listPrice: offer.ListPrice ?? null,
-      hasPromo: offer.Teasers.length > 0,
-      promoDescription: buildPromoDescription(offer.Teasers),
+      // Las dos fuentes son la misma promo con distinta serialización; joinVtexNames
+      // deduplica. Se leen ambas para no depender de cuál serializa bien VTEX hoy.
+      promoDescription: joinVtexNames(offer.Teasers, offer.PromotionTeasers),
+      discountHighlight: joinVtexNames(offer.DiscountHighLight),
       isAvailable: offer.IsAvailable && offer.AvailableQuantity > 0,
     });
   }
