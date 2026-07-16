@@ -432,6 +432,19 @@ se tildan por separado —, pero es la cara visible de la **fragmentación de ma
 documentada más abajo (116 pares). Si algún día se decide fusionarlas, es ahí y no
 acá.
 
+> **Investigación de fragmentación de marcas completa (16/07/2026).** Los datos
+> reales de hoy están en `research/fragmentacion-marcas/HALLAZGOS.md`. Resumen:
+> **119 grupos fragmentados** (240 formas crudas → 121 duplicados) sobre 2.752
+> marcas; reparto parejo por tipo (43 acento / 38 caso / 38 puntuación, **0
+> mezcla**); un solo grupo (`Genérico`/`Generico`, 3.628 productos) es el 63% del
+> impacto y el resto es long tail. **La hipótesis de fusión automática se sostiene
+> en 118/119 grupos**; el único que la rompe es `Boss` (Hugo Boss perfume vs BOSS
+> Audio autoestéreo, distintos por caso) → hace falta allowlist o revisión manual,
+> no colapso ciego. Recomendación: clave de colapso `lower(trim(unaccent(brand)))`
+> + strip de puntuación, separando clave-de-agrupamiento de forma-de-display.
+> **Sesión de diseño pendiente con Juan** (dónde se aplica y cómo se resuelve el
+> display — no decidido en la investigación).
+
 **Migración `006_unaccent_extension.sql`.** `CREATE EXTENSION IF NOT EXISTS
 unaccent`, **sin acción manual en el dashboard de Supabase**: la conexión de la app
 (usuario `postgres`) puede crearla. En Supabase la extensión vive en el schema
