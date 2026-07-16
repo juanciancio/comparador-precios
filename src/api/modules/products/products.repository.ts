@@ -1,6 +1,9 @@
 import { Injectable } from '@nestjs/common';
 import type { Db } from '../../../lib/db.ts';
+import { normalizeBrandKey } from '../../../lib/brand/normalize.ts';
+import { buildBrandGroups } from '../../../lib/brand/groups.ts';
 import { InjectPg } from '../../common/database/database.tokens.ts';
+import { BrandCatalogService } from '../../common/brand/brand-catalog.service.ts';
 import type { Product, PriceHistoryEntry, RetailerOffer } from './dto/products.dto.ts';
 
 export interface RetailerInfo {
@@ -117,7 +120,10 @@ function toProduct(row: RawProductRow): Product {
 export class ProductsRepository {
   private retailerCache: RetailerInfo[] | undefined;
 
-  constructor(@InjectPg() private readonly sql: Db) {}
+  constructor(
+    @InjectPg() private readonly sql: Db,
+    private readonly brandCatalog: BrandCatalogService,
+  ) {}
 
   /** Seed estático (retailers): se cachea en memoria tras la primera lectura. */
   async retailers(): Promise<RetailerInfo[]> {
@@ -132,7 +138,12 @@ export class ProductsRepository {
   async listProducts(f: ListFilters): Promise<{ data: Product[]; total: number }> {
     const sql = this.sql;
     // .length, no truthiness: [] es truthy y filtraría por ninguna marca.
-    const brandFilter = f.brand?.length ? sql`AND p.brand = ANY(${f.brand})` : sql``;
+    // El filtro `?brand=` se expande a las formas crudas del grupo canónico y se
+    // resuelve con `= ANY(...)`, que usa idx_products_brand. Si el/los valores no
+    // matchean ninguna marca del catálogo, el array queda vacío y ANY('{}') no
+    // devuelve filas (marca inexistente = sin resultados, no "sin filtro").
+    const brandForms = f.brand?.length ? await this.brandCatalog.expandBrandFilter(f.brand) : null;
+    const brandFilter = brandForms ? sql`AND p.brand = ANY(${brandForms})` : sql``;
     const scopeFilter = this.scopeSql(f);
 
     const orderCol = {
@@ -159,7 +170,9 @@ export class ProductsRepository {
       WHERE TRUE ${brandFilter} ${scopeFilter}
     `;
 
-    return { data: rows.map(toProduct), total: totalRows[0]!.total };
+    const canon = await this.brandCatalog.resolver();
+    const data = rows.map((r) => this.withCanonicalBrand(toProduct(r), canon));
+    return { data, total: totalRows[0]!.total };
   }
 
   /**
@@ -261,7 +274,9 @@ export class ProductsRepository {
       LIMIT 1
     `;
     const row = rows[0];
-    return row ? toProduct(row) : null;
+    if (!row) return null;
+    const canon = await this.brandCatalog.resolver();
+    return this.withCanonicalBrand(toProduct(row), canon);
   }
 
   async productExists(ean: string): Promise<boolean> {
@@ -320,7 +335,7 @@ export class ProductsRepository {
   }
 
   /**
-   * Conteo de productos por marca dentro de un scope, para el sidebar de filtros.
+   * Conteo de productos por MARCA CANÓNICA dentro de un scope, para el sidebar.
    *
    * El scope sale del mismo `scopeSql()` que usa `listProducts`, y NO aplica el
    * filtro de marca: los contadores describen el universo previo a tildar marcas,
@@ -328,60 +343,71 @@ export class ProductsRepository {
    * los números no se muevan al filtrar. La suma de counts sobre todas las marcas
    * de un scope iguala el `total` de /products o /search con esos mismos params.
    *
+   * Las marcas fragmentadas (Genérico/Generico, Ga.Ma/Gama, ...) se fusionan por
+   * clave N3 y se muestran con un único display canónico. Como el campo `brand`
+   * de los productos usa ese MISMO display, la invariante suma==total se sostiene.
+   *
    * `brand IS NOT NULL`: products.brand es nullable (transform.ts manda null si
    * el retailer no informa marca) y una fila sin marca no es una opción tildeable
    * en el sidebar. Hoy son 0 filas, así que no abre gap contra el total.
    *
-   * `brandQuery` compara con unaccent de los dos lados (ver `unaccentIlike`).
+   * `brandQuery` matchea y ordena por clave N3 (insensible a acento, caso y
+   * puntuación): "generico", "genérico" o "eneric" traen todas el grupo Genérico.
    * Es texto libre tipeado por el usuario, a diferencia del filtro `brand` de
-   * /products y /search, que recibe el nombre exacto que el sidebar tildó y por
-   * eso sigue siendo match exacto.
+   * /products y /search, que recibe el display canónico exacto que el sidebar
+   * tildó y expande a las formas crudas de ese grupo.
    */
   async brandFacets(f: BrandFacetFilters): Promise<BrandFacet[]> {
     const sql = this.sql;
     const scopeFilter = this.scopeSql(f);
-    const brandQueryFilter = f.brandQuery
-      ? sql`AND ${this.unaccentIlike('%' + f.brandQuery + '%')}`
-      : sql``;
 
-    // Con texto, los que empiezan con el término van primero: al tipear "ser" se
-    // espera "Serenísima" antes que "Cañuelas Serenísima". El boolean ordena
-    // true-first con DESC. Sin texto, es top por count puro.
-    //
-    // El prefijo va por unaccent igual que el filtro: si el grupo se decidiera
-    // con acentos, "serenisima" entraría por el filtro insensible pero se
-    // agruparía como substring, y el orden contradiría al match.
-    const orderBy = f.brandQuery
-      ? sql`(${this.unaccentIlike(f.brandQuery + '%')}) DESC, COUNT(*) DESC, p.brand ASC`
-      : sql`COUNT(*) DESC, p.brand ASC`;
-
-    return sql<BrandFacet[]>`
-      SELECT p.brand AS name, COUNT(*)::int AS count
+    // Conteos crudos por marca del scope. La agrupación por marca canónica se
+    // hace en TS (buildBrandGroups) y NO en SQL: un grupo con puntuación (Ga.Ma
+    // + Gama) puede tener formas que un pre-filtro por texto matchearía a
+    // medias, y perderíamos parte del count. Se traen todas las marcas del scope
+    // (acotado por scope; a lo sumo ~2.7k globales) y se agrupa/filtra/ordena en
+    // memoria.
+    const rows = await sql<{ brand: string; count: number }[]>`
+      SELECT p.brand AS brand, COUNT(*)::int AS count
       FROM products p
-      WHERE p.brand IS NOT NULL ${scopeFilter} ${brandQueryFilter}
+      WHERE p.brand IS NOT NULL ${scopeFilter}
       GROUP BY p.brand
-      ORDER BY ${orderBy}
-      LIMIT ${f.limit}
     `;
+
+    const { displayByKey } = await this.brandCatalog.maps();
+    // El display sale del mapa GLOBAL (consistente con el campo brand de los
+    // productos); el count es el del scope. Fallback al display scopeado si el
+    // mapa global quedó stale y no tiene la clave.
+    let facets: BrandFacet[] = buildBrandGroups(rows).map((g) => ({
+      name: displayByKey.get(g.groupKey) ?? g.display,
+      count: g.count,
+    }));
+
+    if (f.brandQuery) {
+      // Match y orden por clave N3 (insensible a acento, caso y puntuación), lo
+      // mismo que usa el agrupamiento. Los prefix-match van primero: al tipear
+      // "ser" se espera "Serta" antes que "La Serenísima".
+      const qKey = normalizeBrandKey(f.brandQuery);
+      facets = facets.filter((fc) => normalizeBrandKey(fc.name).includes(qKey));
+      facets.sort((a, b) => {
+        const aPrefix = normalizeBrandKey(a.name).startsWith(qKey);
+        const bPrefix = normalizeBrandKey(b.name).startsWith(qKey);
+        if (aPrefix !== bPrefix) return aPrefix ? -1 : 1;
+        if (a.count !== b.count) return b.count - a.count;
+        return a.name.localeCompare(b.name, 'es');
+      });
+    } else {
+      facets.sort((a, b) =>
+        a.count !== b.count ? b.count - a.count : a.name.localeCompare(b.name, 'es'),
+      );
+    }
+
+    return facets.slice(0, f.limit);
   }
 
-  /**
-   * `p.brand` comparado contra un patrón LIKE, insensible a mayúsculas Y a
-   * acentos/ñ. Solo para `brand_query` de /search/facets, que es texto libre
-   * tipeado por un usuario argentino en celular, donde no tildar es la norma:
-   * "serenisima" tiene que encontrar "La Serenísima" y "tres ninas" a "Las Tres
-   * Niñas". Los `%` del patrón atraviesan unaccent sin cambio.
-   *
-   * NO se usa para el filtro `brand` de /products y /search: ese recibe el
-   * nombre canónico exacto que el sidebar tildó, no texto tipeado.
-   *
-   * unaccent() es STABLE (depende del diccionario), no IMMUTABLE, así que no se
-   * puede indexar sin envolverla en una función IMMUTABLE — y aun así un btree
-   * no serviría para el patrón '%texto%' con wildcard inicial. Medido: no hace
-   * falta, ver docs/NEXT_SESSION.md.
-   */
-  private unaccentIlike(pattern: string) {
-    return this.sql`unaccent(p.brand) ILIKE unaccent(${pattern})`;
+  /** Reemplaza la marca cruda por el display canónico (capa de presentación). */
+  private withCanonicalBrand(p: Product, canon: (raw: string | null) => string | null): Product {
+    return { ...p, brand: canon(p.brand) };
   }
 
   /**

@@ -5,6 +5,7 @@ import { ThrottlerGuard, ThrottlerModule } from '@nestjs/throttler';
 import { LoggerModule } from 'nestjs-pino';
 import { ZodValidationPipe } from 'nestjs-zod';
 import { DatabaseModule } from './common/database/database.module.ts';
+import { BrandCatalogModule } from './common/brand/brand-catalog.module.ts';
 import { HealthModule } from './modules/health/health.module.ts';
 import { ProductsModule } from './modules/products/products.module.ts';
 import { SearchModule } from './modules/search/search.module.ts';
@@ -36,6 +37,7 @@ import { apiEnv, isProduction } from './config/env.ts';
     // CacheInterceptor; el default TTL es un fallback.
     CacheModule.register({ isGlobal: true, ttl: 5 * 60 * 1000 }),
     DatabaseModule,
+    BrandCatalogModule,
     HealthModule,
     ProductsModule,
     SearchModule,
