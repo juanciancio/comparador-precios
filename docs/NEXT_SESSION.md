@@ -7,6 +7,17 @@
 
 ## 1. Estado actual del proyecto
 
+- **✅ Investigación de descuentos condicionales y programas de fidelidad completa
+  (16/07/2026).** Hallazgos disponibles para la sesión de diseño de Fase B4 con Juan:
+  `research/descuentos-condicionales-fidelidad/HALLAZGOS.md`. Titulares: (1) las promos
+  cantidad-condicionales ("2da al 50%", "2x1", "3x2") NO se bakean en el `Price` del
+  catálogo VTEX (dejan `price=list`; confirmado en ambas cadenas, 94,5% en Carrefour)
+  — los 3.266 descuentos de Masonline son **flat**, no condicionales; (2) Masonline
+  nombra sus promos solo en `productClusters` (ruidoso, inatribuible), no en
+  `commertialOffer`; (3) **MasClub es parcialmente visible** al scraper anónimo (nombre
+  en clusters, pero el precio de socio NO se aplica al `Price` — `list_price` es honesto)
+  — contradice el supuesto previo; (4) queda **abierto y crítico** para B4 verificar si
+  el `Price` de Carrefour en productos "Mi Crf Doble Precio" es socio o no-socio.
 - **✅ Base técnica de descuentos COMPLETA (15/07/2026).** Los cuatro hallazgos
   accionables de `research/precios-descuento/HALLAZGOS.md` están implementados. Ver
   sección 2 abajo para el detalle y para la **ventana de inconsistencia de 24-48hs**.
