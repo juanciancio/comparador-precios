@@ -30,8 +30,10 @@ interface RawCompareRow {
   brand: string | null;
   masonline_price: string;
   masonline_list_price: string | null;
+  masonline_price_without_discount: string | null;
   carrefour_price: string;
   carrefour_list_price: string | null;
+  carrefour_price_without_discount: string | null;
   diff_pct: string;
 }
 
@@ -98,8 +100,10 @@ export class CompareRepository {
         p.ean, p.name_canonical AS name, p.brand,
         m.price::text AS masonline_price,
         m.list_price::text AS masonline_list_price,
+        m.price_without_discount::text AS masonline_price_without_discount,
         c.price::text AS carrefour_price,
         c.list_price::text AS carrefour_list_price,
+        c.price_without_discount::text AS carrefour_price_without_discount,
         ROUND(((c.price - m.price) / m.price * 100)::numeric, 2)::text AS diff_pct
       ${fromWhere}
       ORDER BY ${orderExpr} ${orderDir} NULLS LAST, p.ean ASC
@@ -118,8 +122,16 @@ export class CompareRepository {
         brand: r.brand,
         masonline_price: Number(r.masonline_price),
         masonline_list_price: r.masonline_list_price !== null ? Number(r.masonline_list_price) : null,
+        masonline_price_without_discount:
+          r.masonline_price_without_discount !== null
+            ? Number(r.masonline_price_without_discount)
+            : null,
         carrefour_price: Number(r.carrefour_price),
         carrefour_list_price: r.carrefour_list_price !== null ? Number(r.carrefour_list_price) : null,
+        carrefour_price_without_discount:
+          r.carrefour_price_without_discount !== null
+            ? Number(r.carrefour_price_without_discount)
+            : null,
         diff_pct: diffPct,
         cheaper: cheaperOf(diffPct),
       };

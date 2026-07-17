@@ -106,6 +106,10 @@ export const RetailerOfferSchema = z.object({
   retailerName: z.string(),
   price: z.number(),
   listPrice: z.number().nullable(),
+  // Precio base sin el descuento ya aplicado a `price`. En Carrefour es el no-socio
+  // (quien no tiene Mi Crf); `price` es el de socio. null solo si VTEX no lo expuso.
+  // El frontend detecta Mi Crf comparando priceWithoutDiscount !== price.
+  priceWithoutDiscount: z.number().nullable(),
   hasPromo: z.boolean(),
   promoDescription: z.string().nullable(),
   isAvailable: z.boolean(),
@@ -144,6 +148,7 @@ export const PriceHistoryEntrySchema = z.object({
   validTo: z.string().nullable(),
   price: z.number(),
   listPrice: z.number().nullable(),
+  priceWithoutDiscount: z.number().nullable(),
   hasPromo: z.boolean(),
   promoDescription: z.string().nullable(),
   isAvailable: z.boolean(),

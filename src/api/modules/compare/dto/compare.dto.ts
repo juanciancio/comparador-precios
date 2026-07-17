@@ -39,15 +39,24 @@ export class CompareQueryDto extends createZodDto(CompareQuerySchema) {}
 // 47.358, pero el contrato no puede prometer lo que la columna no garantiza.
 //
 // `diff_pct` y `cheaper` siguen calculándose sobre `price`, sin cambios. Comparar
-// sobre precios de lista es una decisión de producto de Fase B4, no de esta capa.
+// sobre precios de lista (o sobre el precio físico no-socio) es una decisión de
+// producto de Fase B4, no de esta capa.
+//
+// `*_price_without_discount`: precio base sin el descuento ya aplicado a `*_price`.
+// En Carrefour es el no-socio (quien no tiene Mi Crf); `*_price` es el de socio. Es
+// lo que el frontend necesita para el badge "más barato" sobre el precio físico.
+// snake_case por cadena, consistente con el resto del contrato de /compare (no
+// camelCase: acá no existe `listPrice`, existe `masonline_list_price`).
 export const CompareRowSchema = z.object({
   ean: z.string(),
   name: z.string(),
   brand: z.string().nullable(),
   masonline_price: z.number(),
   masonline_list_price: z.number().nullable(),
+  masonline_price_without_discount: z.number().nullable(),
   carrefour_price: z.number(),
   carrefour_list_price: z.number().nullable(),
+  carrefour_price_without_discount: z.number().nullable(),
   diff_pct: z.number(),
   cheaper: z.enum(['masonline', 'carrefour', 'tie']),
 });

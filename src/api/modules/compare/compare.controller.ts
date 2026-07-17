@@ -20,8 +20,10 @@ const COMPARE_EXAMPLE = {
       brand: 'Sensodyne',
       masonline_price: 6309,
       masonline_list_price: 6309,
+      masonline_price_without_discount: 6309,
       carrefour_price: 4725,
       carrefour_list_price: 6300,
+      carrefour_price_without_discount: 6300,
       diff_pct: -25.11,
       cheaper: 'carrefour',
     },
@@ -51,7 +53,12 @@ export class CompareController {
       'no cumple (ej. la tarjeta "Mi Crf" de Carrefour). La brecha es sistémica: ' +
       '`list > price` en 44,7% del catálogo vigente de Carrefour y 20,1% del de ' +
       'Masonline. **`diff_pct` y `cheaper` se calculan sobre `price`**, no sobre el ' +
-      'precio de lista.',
+      'precio de lista.\n\n' +
+      '**`*_price_without_discount`:** precio base sin el descuento que VTEX ya aplicó ' +
+      'a `*_price`. En Carrefour es el precio no-socio (quien no tiene la tarjeta Mi ' +
+      'Crf); `*_price` es el de socio. Es lo que el frontend usa para comparar sobre ' +
+      'el precio físico. `null` solo si VTEX no expuso el campo; cuando no hay ' +
+      'descuento, iguala a `*_price`.',
   })
   @ApiOkResponse({
     type: CompareResponseDto,
