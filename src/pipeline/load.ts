@@ -17,6 +17,7 @@ export interface LoadResult {
 interface Effective {
   price: number;
   listPrice: number | null;
+  priceWithoutDiscount: number | null;
   hasPromo: boolean;
   promoDescription: string | null;
   discountHighlight: string | null;
@@ -28,6 +29,7 @@ interface CurrentRow {
   valid_from: string; // YYYY-MM-DD
   price: string; // NUMERIC llega como string
   list_price: string | null;
+  price_without_discount: string | null;
   has_promo: boolean;
   promo_description: string | null;
   discount_highlight: string | null;
@@ -41,6 +43,7 @@ interface PhInsert {
   valid_to: string | null;
   price: number;
   list_price: number | null;
+  price_without_discount: number | null;
   has_promo: boolean;
   promo_description: string | null;
   discount_highlight: string | null;
@@ -59,9 +62,23 @@ function unchanged(eff: Effective, cur: CurrentRow): boolean {
     eff.listPrice === null
       ? cur.list_price === null
       : cur.list_price !== null && eff.listPrice === Number(cur.list_price);
+  // Grace bidireccional sobre price_without_discount: NO dispara vigencia nueva si
+  //  - cur es NULL: fila previa al deploy (o a la captura del campo). No hay dato que
+  //    comparar; lo que cambió es nuestra capacidad de observar, no el precio. `load`
+  //    backfillea el valor in-place en el path de "sin cambios" (toBackfill).
+  //  - eff es NULL: VTEX dejó de exponer el campo esta corrida. Conservamos el último
+  //    valor bueno en vez de forzar una vigencia sobre incertidumbre. El evento
+  //    económico "desapareció el descuento Mi Crf" NO se ve como pwd→NULL, sino como
+  //    `price` subiendo o `discount_highlight` cambiando (ambos ya relevantes).
+  // Con ambos poblados, una diferencia SÍ es cambio de estado y abre vigencia nueva.
+  const pwdEqual =
+    cur.price_without_discount === null ||
+    eff.priceWithoutDiscount === null ||
+    eff.priceWithoutDiscount === Number(cur.price_without_discount);
   return (
     eff.price === Number(cur.price) &&
     listEqual &&
+    pwdEqual &&
     eff.hasPromo === cur.has_promo &&
     (eff.promoDescription ?? null) === (cur.promo_description ?? null) &&
     // Campo relevante: el highlight nombra el descuento aplicado y su vigencia
@@ -81,6 +98,7 @@ function insertFrom(retailerId: number, ean: string, eff: Effective, today: stri
     valid_to: null,
     price: eff.price,
     list_price: eff.listPrice,
+    price_without_discount: eff.priceWithoutDiscount,
     has_promo: eff.hasPromo,
     promo_description: eff.promoDescription,
     discount_highlight: eff.discountHighlight,
@@ -111,7 +129,9 @@ export function loadRun(
 
       const curRows = await tx<CurrentRow[]>`
         SELECT ean, valid_from::text AS valid_from, price::text AS price,
-               list_price::text AS list_price, has_promo, promo_description,
+               list_price::text AS list_price,
+               price_without_discount::text AS price_without_discount,
+               has_promo, promo_description,
                discount_highlight, is_available
         FROM price_history
         WHERE retailer_id = ${retailerId} AND valid_to IS NULL
@@ -123,6 +143,11 @@ export function loadRun(
       const toClose: string[] = [];
       const sameDay: Array<{ ean: string; eff: Effective }> = [];
       const toBump: string[] = [];
+      // Sin cambio de precio, pero la fila vigente tiene price_without_discount en
+      // NULL (previa a la captura del campo) y ahora sí lo observamos: se backfillea
+      // in-place, sin abrir vigencia. Es la ventana de transición post-deploy; una vez
+      // poblado todo, este array queda vacío y volvemos a solo-bump. Ver grace en unchanged().
+      const toBackfill: Array<{ ean: string; pwd: number }> = [];
       const result: LoadResult = {
         productsUpserted: 0,
         productsNew: 0,
@@ -160,6 +185,12 @@ export function loadRun(
           eff = {
             price: carryPrice,
             listPrice: carryListPrice,
+            // Es un precio observado, no metadata de promo: se arrastra como price y
+            // list_price (último valor conocido), no se limpia a null. Si la fila que
+            // cierra no lo tenía (legacy), queda null y el grace de unchanged() lo
+            // trata como "sin dato", no como cambio.
+            priceWithoutDiscount:
+              cur!.price_without_discount !== null ? Number(cur!.price_without_discount) : null,
             // Derivado, no false: has_promo es función pura de (price, list_price),
             // y ambos se arrastran. Hardcodear false acá dejaría filas que se
             // contradicen a sí mismas (list_price > price con el flag apagado).
@@ -178,6 +209,8 @@ export function loadRun(
           eff = {
             price,
             listPrice,
+            priceWithoutDiscount:
+              row.priceWithoutDiscount !== null ? round2(row.priceWithoutDiscount) : null,
             hasPromo: computeHasPromo(price, listPrice),
             promoDescription: row.promoDescription,
             discountHighlight: row.discountHighlight,
@@ -191,7 +224,11 @@ export function loadRun(
           toInsert.push(insertFrom(retailerId, row.ean, eff, today));
           result.priceNew += 1;
         } else if (unchanged(eff, cur)) {
-          toBump.push(row.ean);
+          if (cur.price_without_discount === null && eff.priceWithoutDiscount !== null) {
+            toBackfill.push({ ean: row.ean, pwd: eff.priceWithoutDiscount });
+          } else {
+            toBump.push(row.ean);
+          }
           result.priceUnchanged += 1;
         } else if (cur.valid_from === today) {
           sameDay.push({ ean: row.ean, eff });
@@ -263,6 +300,7 @@ export function loadRun(
         await tx`
           UPDATE price_history SET
             price = ${u.eff.price}, list_price = ${u.eff.listPrice},
+            price_without_discount = ${u.eff.priceWithoutDiscount},
             has_promo = ${u.eff.hasPromo}, promo_description = ${u.eff.promoDescription},
             discount_highlight = ${u.eff.discountHighlight},
             is_available = ${u.eff.isAvailable}, last_seen_at = NOW()
@@ -274,6 +312,20 @@ export function loadRun(
         await tx`
           UPDATE price_history SET last_seen_at = NOW()
           WHERE retailer_id = ${retailerId} AND valid_to IS NULL AND ean = ANY(${part})
+        `;
+      }
+      // backfill de price_without_discount en filas legacy (sin cambio de precio).
+      // Un solo statement batcheado por chunk vía unnest; pwd nunca es null acá (es
+      // la condición de entrada al array). Idempotente: en la 2da corrida la fila ya
+      // tiene el valor, cur deja de ser null y estas filas caen en toBump.
+      for (const part of chunks(toBackfill, CHUNK * 10)) {
+        const eans = part.map((b) => b.ean);
+        const pwds = part.map((b) => b.pwd);
+        await tx`
+          UPDATE price_history ph
+          SET price_without_discount = data.pwd, last_seen_at = NOW()
+          FROM unnest(${eans}::text[], ${pwds}::numeric[]) AS data(ean, pwd)
+          WHERE ph.retailer_id = ${retailerId} AND ph.valid_to IS NULL AND ph.ean = data.ean
         `;
       }
 

@@ -1,0 +1,20 @@
+-- `PriceWithoutDiscount`: el precio base sobre el que VTEX calcula los descuentos
+-- YA aplicados a `price`. En Carrefour es el precio NO-socio (el que paga quien no
+-- tiene la tarjeta Mi Crf); `price` es el de socio. El schema Zod ya lo parseaba
+-- (vtex-product.ts:31) pero lo tirábamos: sin este campo, el frontend no puede armar
+-- el tratamiento "precio físico vs online con Mi Crf" en el 17% de la familia Mi Crf
+-- de tres niveles, donde `list_price` está inflado 12-54% por encima del no-socio real.
+-- Ver research/mi-crf-precio-capturado/HALLAZGOS.md.
+--
+-- Va en price_history (no en products): es estado de precio, por retailer y por
+-- vigencia. Mismo criterio que list_price y discount_highlight (migración 007).
+--
+-- NUMERIC, NULL permitido. Sin índice: es campo derivado que el frontend lee junto
+-- con la oferta; no se filtra ni ordena por él.
+--
+-- Sin retro-poblado: no tenemos el dato histórico. Las filas previas al deploy quedan
+-- en NULL. `load` las backfillea in-place la primera vez que reobserva cada producto
+-- (grace NULL en la detección de cambios), sin abrir vigencias espurias. La data
+-- limpia arranca en la primera corrida post-deploy; el catálogo completo se puebla en
+-- 24-48hs. Ver "Grace de price_without_discount" en la lógica de load.
+ALTER TABLE price_history ADD COLUMN IF NOT EXISTS price_without_discount NUMERIC(12, 2);

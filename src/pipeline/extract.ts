@@ -19,6 +19,11 @@ export interface ExtractedSku {
   productUrl: string;
   price: number; // crudo observado (VTEX manda 0 en no disponibles)
   listPrice: number | null;
+  // Precio base sobre el que VTEX calcula los descuentos ya aplicados a `price`.
+  // En Carrefour es el precio NO-socio (el que paga quien no tiene Mi Crf); `price`
+  // es el de socio. null solo cuando VTEX omite el campo (raro): NO se cae a `price`
+  // para no inventar un no-socio igual al socio. Ver research/mi-crf-precio-capturado.
+  priceWithoutDiscount: number | null;
   promoDescription: string | null;
   /** Nombre crudo del descuento aplicado a `price`, si VTEX lo expone. */
   discountHighlight: string | null;
@@ -93,6 +98,10 @@ export function extractSkus(raw: unknown, host: string): ExtractResult {
       productUrl: `https://${host}/${product.linkText}/p`,
       price: offer.Price,
       listPrice: offer.ListPrice ?? null,
+      // ?? null (no ?? Price): null significa "VTEX no lo expuso", no "no hay
+      // descuento". Cuando no hay descuento, VTEX manda PriceWithoutDiscount == Price
+      // y el campo queda poblado igual (ver caso borde 1 del diseño).
+      priceWithoutDiscount: offer.PriceWithoutDiscount ?? null,
       // Las dos fuentes son la misma promo con distinta serialización; joinVtexNames
       // deduplica. Se leen ambas para no depender de cuál serializa bien VTEX hoy.
       promoDescription: joinVtexNames(offer.Teasers, offer.PromotionTeasers),
