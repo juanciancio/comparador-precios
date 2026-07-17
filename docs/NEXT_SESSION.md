@@ -20,15 +20,29 @@
 - **✅ Mi Crf: `price` es el precio de SOCIO (16/07/2026).**
   `research/mi-crf-precio-capturado/HALLAZGOS.md`. En las 453 filas Mi Crf (228 Doble
   Precio + 225 "X% Off Mi Crf") vale `Price = PriceWithoutDiscount × (1 − N%)`: `price`
-  guarda el precio de socio, y el precio **no-socio vive en `PriceWithoutDiscount`, campo
-  que hoy descartamos** (el schema Zod ya lo parsea, `vtex-product.ts:31`). `list_price`
-  no es el socio y como proxy de no-socio es mixto (= no-socio en Reg y la mayoría de
-  Doble Precio; inflado 12–54% por encima del no-socio en ~17% de Doble Precio).
-  **Fix propuesto (no implementado, para sesión aparte):** sumar `PriceWithoutDiscount`
-  en `extract.ts` + migración de columna en `price_history` + agregarlo a campos
-  relevantes de vigencias en `load.ts`. **Pendiente de aprobación de Juan:** una
-  simulación de checkout anónima (endpoint fuera de CLAUDE.md) para zanjar qué paga el
-  anónimo online en Doble Precio de tres niveles. B4 no debería arrancar sin decidir el fix.
+  guarda el precio de socio, y el precio **no-socio vive en `PriceWithoutDiscount`**.
+  `list_price` no es el socio y como proxy de no-socio es mixto (= no-socio en Reg y la
+  mayoría de Doble Precio; inflado 12–54% por encima del no-socio en ~17% de Doble Precio).
+- **✅ `priceWithoutDiscount` PERSISTIDO Y EXPUESTO EN LA API (17/07/2026).** El fix del
+  ítem anterior está implementado: `extract.ts` propaga `PriceWithoutDiscount` (schema Zod
+  ya lo parseaba), migración `008_price_without_discount.sql` agrega la columna
+  `price_without_discount NUMERIC(12,2)` a `price_history`, y `load.ts` lo trata como
+  campo relevante de vigencias **con grace bidireccional** (NULL en cur o en eff no dispara
+  vigencia nueva; las filas legacy se backfillean in-place sin ensuciar el historial — ver
+  "Grace de price_without_discount" en el algoritmo de load). Expuesto como
+  **`priceWithoutDiscount`** (camelCase) en `GET /products`, `/products/:ean`,
+  `/products/:ean/price-history`, `/products/recent-changes`, `/search`, y como
+  **`masonline_price_without_discount` / `carrefour_price_without_discount`** (snake_case,
+  consistente con el contrato de /compare) en `GET /compare`. Nullable: el frontend detecta
+  Mi Crf comparando `priceWithoutDiscount !== price` y hace fallback silencioso a `listPrice`
+  cuando viene null. **Disponible para la migración del frontend** al tratamiento "precio
+  físico (no-socio) vs online con Mi Crf" en las cards. Tests: `tests/api/price-without-discount.test.ts`.
+  **VENTANA DE TRANSICIÓN (24-48hs):** sin retro-poblado. La columna arranca en NULL para
+  todo el catálogo; se puebla a medida que el scraper diario reobserva cada producto (el
+  primer scrape post-deploy la llena via backfill in-place). Hasta entonces, la mayoría de
+  las ofertas traen `priceWithoutDiscount: null` — esperado, no bug.
+  **Pendiente (producto, no bloquea la API):** simulación de checkout anónima para zanjar
+  qué paga el anónimo online en Doble Precio de tres niveles. Es decisión de Juan para B4.
 - **✅ Base técnica de descuentos COMPLETA (15/07/2026).** Los cuatro hallazgos
   accionables de `research/precios-descuento/HALLAZGOS.md` están implementados. Ver
   sección 2 abajo para el detalle y para la **ventana de inconsistencia de 24-48hs**.
