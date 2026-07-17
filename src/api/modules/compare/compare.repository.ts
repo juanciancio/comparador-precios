@@ -6,6 +6,7 @@ import {
   DIFF_BUCKET_COUNT,
   DIFF_TIE_TOLERANCE_PCT,
 } from '../../../lib/diff-buckets.ts';
+import { MI_CRF_HIGHLIGHT_PATTERN } from '../../../lib/mi-crf.ts';
 import type { CompareRow, CompareStats } from './dto/compare.dto.ts';
 
 export interface CompareFilters {
@@ -31,9 +32,11 @@ interface RawCompareRow {
   masonline_price: string;
   masonline_list_price: string | null;
   masonline_price_without_discount: string | null;
+  masonline_has_mi_crf_discount: boolean;
   carrefour_price: string;
   carrefour_list_price: string | null;
   carrefour_price_without_discount: string | null;
+  carrefour_has_mi_crf_discount: boolean;
   diff_pct: string;
 }
 
@@ -101,9 +104,11 @@ export class CompareRepository {
         m.price::text AS masonline_price,
         m.list_price::text AS masonline_list_price,
         m.price_without_discount::text AS masonline_price_without_discount,
+        COALESCE(m.discount_highlight ILIKE ${MI_CRF_HIGHLIGHT_PATTERN}, false) AS masonline_has_mi_crf_discount,
         c.price::text AS carrefour_price,
         c.list_price::text AS carrefour_list_price,
         c.price_without_discount::text AS carrefour_price_without_discount,
+        COALESCE(c.discount_highlight ILIKE ${MI_CRF_HIGHLIGHT_PATTERN}, false) AS carrefour_has_mi_crf_discount,
         ROUND(((c.price - m.price) / m.price * 100)::numeric, 2)::text AS diff_pct
       ${fromWhere}
       ORDER BY ${orderExpr} ${orderDir} NULLS LAST, p.ean ASC
@@ -126,12 +131,14 @@ export class CompareRepository {
           r.masonline_price_without_discount !== null
             ? Number(r.masonline_price_without_discount)
             : null,
+        masonline_has_mi_crf_discount: r.masonline_has_mi_crf_discount,
         carrefour_price: Number(r.carrefour_price),
         carrefour_list_price: r.carrefour_list_price !== null ? Number(r.carrefour_list_price) : null,
         carrefour_price_without_discount:
           r.carrefour_price_without_discount !== null
             ? Number(r.carrefour_price_without_discount)
             : null,
+        carrefour_has_mi_crf_discount: r.carrefour_has_mi_crf_discount,
         diff_pct: diffPct,
         cheaper: cheaperOf(diffPct),
       };

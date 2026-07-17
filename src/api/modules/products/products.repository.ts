@@ -2,6 +2,7 @@ import { Injectable } from '@nestjs/common';
 import type { Db } from '../../../lib/db.ts';
 import { normalizeBrandKey } from '../../../lib/brand/normalize.ts';
 import { buildBrandGroups } from '../../../lib/brand/groups.ts';
+import { MI_CRF_HIGHLIGHT_PATTERN, isMiCrfDiscount } from '../../../lib/mi-crf.ts';
 import { InjectPg } from '../../common/database/database.tokens.ts';
 import { BrandCatalogService } from '../../common/brand/brand-catalog.service.ts';
 import type { Product, PriceHistoryEntry, RetailerOffer } from './dto/products.dto.ts';
@@ -96,6 +97,7 @@ interface RawPriceHistoryRow {
   price: string;
   list_price: string | null;
   price_without_discount: string | null;
+  discount_highlight: string | null;
   has_promo: boolean;
   promo_description: string | null;
   is_available: boolean;
@@ -299,6 +301,7 @@ export class ProductsRepository {
         ph.valid_from::text AS valid_from, ph.valid_to::text AS valid_to,
         ph.price::text AS price, ph.list_price::text AS list_price,
         ph.price_without_discount::text AS price_without_discount,
+        ph.discount_highlight,
         ph.has_promo, ph.promo_description, ph.is_available
       FROM price_history ph
       JOIN retailers r ON r.id = ph.retailer_id
@@ -315,6 +318,7 @@ export class ProductsRepository {
       listPrice: row.list_price !== null ? Number(row.list_price) : null,
       priceWithoutDiscount:
         row.price_without_discount !== null ? Number(row.price_without_discount) : null,
+      hasMiCrfDiscount: isMiCrfDiscount(row.discount_highlight),
       hasPromo: row.has_promo,
       promoDescription: row.promo_description,
       isAvailable: row.is_available,
@@ -464,6 +468,7 @@ export class ProductsRepository {
         'price', ph.price,
         'listPrice', ph.list_price,
         'priceWithoutDiscount', ph.price_without_discount,
+        'hasMiCrfDiscount', COALESCE(ph.discount_highlight ILIKE ${MI_CRF_HIGHLIGHT_PATTERN}, false),
         'hasPromo', ph.has_promo,
         'promoDescription', ph.promo_description,
         'isAvailable', ph.is_available,

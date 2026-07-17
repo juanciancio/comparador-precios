@@ -47,6 +47,11 @@ export class CompareQueryDto extends createZodDto(CompareQuerySchema) {}
 // lo que el frontend necesita para el badge "más barato" sobre el precio físico.
 // snake_case por cadena, consistente con el resto del contrato de /compare (no
 // camelCase: acá no existe `listPrice`, existe `masonline_list_price`).
+//
+// `*_has_mi_crf_discount`: trigger del tratamiento visual Mi Crf, derivado en el backend
+// de discount_highlight (ver src/lib/mi-crf.ts). boolean, nunca null. `masonline_*` es
+// siempre false (Masonline no tiene Mi Crf), se expone igual para simetría con el par y
+// para que el frontend no chequee existencia del campo.
 export const CompareRowSchema = z.object({
   ean: z.string(),
   name: z.string(),
@@ -54,9 +59,11 @@ export const CompareRowSchema = z.object({
   masonline_price: z.number(),
   masonline_list_price: z.number().nullable(),
   masonline_price_without_discount: z.number().nullable(),
+  masonline_has_mi_crf_discount: z.boolean(),
   carrefour_price: z.number(),
   carrefour_list_price: z.number().nullable(),
   carrefour_price_without_discount: z.number().nullable(),
+  carrefour_has_mi_crf_discount: z.boolean(),
   diff_pct: z.number(),
   cheaper: z.enum(['masonline', 'carrefour', 'tie']),
 });

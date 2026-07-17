@@ -108,8 +108,11 @@ export const RetailerOfferSchema = z.object({
   listPrice: z.number().nullable(),
   // Precio base sin el descuento ya aplicado a `price`. En Carrefour es el no-socio
   // (quien no tiene Mi Crf); `price` es el de socio. null solo si VTEX no lo expuso.
-  // El frontend detecta Mi Crf comparando priceWithoutDiscount !== price.
   priceWithoutDiscount: z.number().nullable(),
+  // Trigger del tratamiento visual Mi Crf. Derivado en el backend de discount_highlight
+  // (ver src/lib/mi-crf.ts): el frontend no parsea el string. true solo en Carrefour con
+  // descuento de fidelidad; false en Masonline y en promos "-Reg-" generales. Nunca null.
+  hasMiCrfDiscount: z.boolean(),
   hasPromo: z.boolean(),
   promoDescription: z.string().nullable(),
   isAvailable: z.boolean(),
@@ -149,6 +152,7 @@ export const PriceHistoryEntrySchema = z.object({
   price: z.number(),
   listPrice: z.number().nullable(),
   priceWithoutDiscount: z.number().nullable(),
+  hasMiCrfDiscount: z.boolean(),
   hasPromo: z.boolean(),
   promoDescription: z.string().nullable(),
   isAvailable: z.boolean(),

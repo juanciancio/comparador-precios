@@ -21,9 +21,11 @@ const COMPARE_EXAMPLE = {
       masonline_price: 6309,
       masonline_list_price: 6309,
       masonline_price_without_discount: 6309,
+      masonline_has_mi_crf_discount: false,
       carrefour_price: 4725,
       carrefour_list_price: 6300,
       carrefour_price_without_discount: 6300,
+      carrefour_has_mi_crf_discount: true,
       diff_pct: -25.11,
       cheaper: 'carrefour',
     },
@@ -58,7 +60,11 @@ export class CompareController {
       'a `*_price`. En Carrefour es el precio no-socio (quien no tiene la tarjeta Mi ' +
       'Crf); `*_price` es el de socio. Es lo que el frontend usa para comparar sobre ' +
       'el precio físico. `null` solo si VTEX no expuso el campo; cuando no hay ' +
-      'descuento, iguala a `*_price`.',
+      'descuento, iguala a `*_price`.\n\n' +
+      '**`*_has_mi_crf_discount`:** boolean derivado en el backend — `true` cuando el ' +
+      'precio efectivo viene del descuento de fidelidad Mi Crf de Carrefour. Es el ' +
+      'trigger del tratamiento visual "precio físico vs con Mi Crf"; el frontend no ' +
+      'parsea strings de descuento. `masonline_has_mi_crf_discount` es siempre `false`.',
   })
   @ApiOkResponse({
     type: CompareResponseDto,

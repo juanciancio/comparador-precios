@@ -10,6 +10,7 @@ interface Offer {
   price: number;
   listPrice: number | null;
   priceWithoutDiscount: number | null;
+  hasMiCrfDiscount: boolean;
   isAvailable: boolean;
 }
 interface Product {
@@ -151,6 +152,97 @@ describe('priceWithoutDiscount — invariantes sobre datos poblados', () => {
       if (r.masonline_price_without_discount !== null) {
         expect(r.masonline_price_without_discount).toBeGreaterThanOrEqual(r.masonline_price);
       }
+    }
+  });
+});
+
+/**
+ * `hasMiCrfDiscount`: trigger del tratamiento visual Mi Crf. Derivado en el backend de
+ * discount_highlight (src/lib/mi-crf.ts) para que el frontend no parsee el string opaco
+ * del retailer. A diferencia de priceWithoutDiscount, NO sufre ventana de transición:
+ * discount_highlight ya está 100% poblado desde el fix de Teasers, así que el flag es
+ * fiel desde el deploy.
+ */
+describe('hasMiCrfDiscount — flag derivado de discount_highlight', () => {
+  it('el pattern parte el universo: familia Mi Crf (~455) vs promos generales (~2557)', async () => {
+    // Canario de que el flag NO es "tiene discount_highlight": de las ~3.012 filas con
+    // highlight, solo ~455 son Mi Crf; el resto son promos "-Reg-" que deben dar false.
+    const sql = db();
+    const rows = await sql<{ mi_crf: number; other_highlight: number }[]>`
+      SELECT
+        COUNT(*) FILTER (WHERE ph.discount_highlight ILIKE '%mi crf%')::int AS mi_crf,
+        COUNT(*) FILTER (WHERE ph.discount_highlight IS NOT NULL
+                          AND ph.discount_highlight NOT ILIKE '%mi crf%')::int AS other_highlight
+      FROM price_history ph
+      JOIN retailers r ON r.id = ph.retailer_id
+      WHERE ph.valid_to IS NULL AND r.slug = 'carrefour'
+    `;
+    expect(rows[0]!.mi_crf).toBeGreaterThan(400);
+    expect(rows[0]!.other_highlight).toBeGreaterThan(2000);
+  });
+
+  it('GET /products: hasMiCrfDiscount es boolean no-null; true solo en Carrefour', async () => {
+    const res = await request(http()).get('/products').query({ limit: 100 });
+    expect(res.status).toBe(200);
+    for (const o of offersOf(res.body.data)) {
+      expect(typeof o.hasMiCrfDiscount).toBe('boolean');
+      if (o.retailer === 'masonline') expect(o.hasMiCrfDiscount).toBe(false);
+      if (o.hasMiCrfDiscount) expect(o.retailer).toBe('carrefour');
+    }
+  });
+
+  it('un EAN de familia Mi Crf reporta hasMiCrfDiscount=true en su oferta Carrefour', async () => {
+    const sql = db();
+    const picked = await sql<{ ean: string }[]>`
+      SELECT ph.ean
+      FROM price_history ph
+      JOIN retailers r ON r.id = ph.retailer_id
+      WHERE ph.valid_to IS NULL AND r.slug = 'carrefour'
+        AND ph.discount_highlight ILIKE '%mi crf%'
+      ORDER BY ph.ean LIMIT 1
+    `;
+    expect(picked.length).toBe(1);
+    const res = await request(http()).get(`/products/${picked[0]!.ean}`);
+    expect(res.status).toBe(200);
+    const carrefour = (res.body.retailers as Offer[]).find((o) => o.retailer === 'carrefour');
+    expect(carrefour?.hasMiCrfDiscount).toBe(true);
+  });
+
+  it('un EAN con discount_highlight NO-Mi-Crf reporta hasMiCrfDiscount=false', async () => {
+    // El flag distingue Mi Crf de las promos "-Reg-" generales: ambas tienen highlight.
+    const sql = db();
+    const picked = await sql<{ ean: string }[]>`
+      SELECT ph.ean
+      FROM price_history ph
+      JOIN retailers r ON r.id = ph.retailer_id
+      WHERE ph.valid_to IS NULL AND r.slug = 'carrefour'
+        AND ph.discount_highlight IS NOT NULL
+        AND ph.discount_highlight NOT ILIKE '%mi crf%'
+      ORDER BY ph.ean LIMIT 1
+    `;
+    expect(picked.length).toBe(1);
+    const res = await request(http()).get(`/products/${picked[0]!.ean}`);
+    expect(res.status).toBe(200);
+    const carrefour = (res.body.retailers as Offer[]).find((o) => o.retailer === 'carrefour');
+    expect(carrefour?.hasMiCrfDiscount).toBe(false);
+  });
+
+  it('price-history incluye hasMiCrfDiscount boolean', async () => {
+    const list = await request(http()).get('/products').query({ limit: 1 });
+    const ean = (list.body.data as Product[])[0]!.ean;
+    const history = await request(http()).get(`/products/${ean}/price-history`);
+    expect(history.status).toBe(200);
+    expect(history.body.history.length).toBeGreaterThan(0);
+    for (const h of history.body.history) expect(typeof h.hasMiCrfDiscount).toBe('boolean');
+  });
+
+  it('GET /compare: carrefour flag boolean; masonline_has_mi_crf_discount siempre false', async () => {
+    const res = await request(http()).get('/compare').query({ limit: 100 });
+    expect(res.status).toBe(200);
+    expect(res.body.data.length).toBeGreaterThan(0);
+    for (const r of res.body.data) {
+      expect(typeof r.carrefour_has_mi_crf_discount).toBe('boolean');
+      expect(r.masonline_has_mi_crf_discount).toBe(false);
     }
   });
 });
