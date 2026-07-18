@@ -7,24 +7,24 @@
   REPORTE CRUZADO POR EAN — Masonline vs Carrefour
 ════════════════════════════════════════════════════════════════════════════
 
-  TOTAL DE PRODUCTOS QUE MATCHEAN POR EAN: 4.119
+  TOTAL DE PRODUCTOS QUE MATCHEAN POR EAN: 4.085
   (ambas cadenas, precio vigente y disponible, price > 0)
 
 ──────────────────────────────────────────────────────────────────────────────
   DISTRIBUCIÓN DE DIFERENCIAS DE PRECIO (|diff %|)
 ──────────────────────────────────────────────────────────────────────────────
-  < 5%       1.959 ( 47.6%) ████████████████████████████████████████
-  5–10%        500 ( 12.1%) ██████████
-  10–25%       574 ( 13.9%) ████████████
-  25–50%       947 ( 23.0%) ███████████████████
-  ≥ 50%        139 (  3.4%) ███
+  < 5%       2.007 ( 49.1%) ████████████████████████████████████████
+  5–10%        452 ( 11.1%) █████████
+  10–25%       552 ( 13.5%) ███████████
+  25–50%       930 ( 22.8%) ███████████████████
+  ≥ 50%        144 (  3.5%) ███
 
 ──────────────────────────────────────────────────────────────────────────────
   ¿QUIÉN ES MÁS BARATO? (empate = |diff| ≤ 1%)
 ──────────────────────────────────────────────────────────────────────────────
-  Masonline más barato:     980 (23.8%)
-  Carrefour más barato:   1.638 (39.8%)
-  Empate:                 1.501 (36.4%)
+  Masonline más barato:     959 (23.5%)
+  Carrefour más barato:   1.561 (38.2%)
+  Empate:                 1.565 (38.3%)
 
 ──────────────────────────────────────────────────────────────────────────────
   TOP 20 MAYORES DIFERENCIAS (|diff %|) — spot-check manual
@@ -48,37 +48,37 @@
   7702010420320        3.005,40      5.399,00    79.64% M [Protex] Jabón Líquido Protex Aloe 221 Ml
   7798118410660        1.389,00      2.490,00    79.27% M [Durax] Plato Para Postre Durax Gema 19 Cm
   7796885457611      959.999,19  1.699.999,00    77.08% M [Bgh] Aire Acondicionado Ventana Bgh 5200w Frio Bc52wfaw
+  7799111679054       41.999,30     73.699,00    75.48% M [Philco] Cortadora De Pelo Inalámbrica Philco Grooming Kit 5 E
   70330342644          1.439,40      2.490,00    72.99% M [Bic] Resaltador Brite Liner Text Verde 1u
-  7793360131448        2.169,00      3.729,00    71.92% M [La Campagnola] Mermelada La Campagnola Damasco 454g
 
 ──────────────────────────────────────────────────────────────────────────────
   DISTRIBUCIÓN POR MARCA (top 20 en el match cross-retailer)
 ──────────────────────────────────────────────────────────────────────────────
   La Serenísima                76  ██████████████████████████████
   Sedal                        61  ████████████████████████
-  Elvive                       56  ██████████████████████
+  Elvive                       55  ██████████████████████
   Dove                         53  █████████████████████
-  Colgate                      52  █████████████████████
+  Colgate                      49  ███████████████████
   Nivea                        47  ███████████████████
-  Alicante                     40  ████████████████
-  Milkaut                      39  ███████████████
+  Milkaut                      38  ███████████████
+  Alicante                     35  ██████████████
   VERTICE                      34  █████████████
-  Arcor                        31  ████████████
-  Revigal                      31  ████████████
+  Lucchetti                    31  ████████████
   Pantene                      31  ████████████
   La Virginia                  30  ████████████
-  Lucchetti                    30  ████████████
-  Granja Del Sol               28  ███████████
+  Arcor                        29  ███████████
+  Revigal                      28  ███████████
   Knorr                        28  ███████████
+  Granja Del Sol               27  ███████████
   Rexona                       27  ███████████
-  Bimbo                        26  ██████████
-  La Parmesana                 25  ██████████
+  Bimbo                        25  ██████████
   Matarazzo                    25  ██████████
+  Tregar                       23  █████████
 
 ──────────────────────────────────────────────────────────────────────────────
   EXCLUSIVOS POR CADENA (EAN disponible en una, no en la otra)
 ──────────────────────────────────────────────────────────────────────────────
-  Solo en Masonline: 8.153
-  Solo en Carrefour: 22.480
+  Solo en Masonline: 8.187
+  Solo en Carrefour: 22.502
 
 ════════════════════════════════════════════════════════════════════════════
