@@ -119,21 +119,45 @@ function describeErr(error: unknown): unknown {
 
 type LogCtx = Record<string, unknown>;
 
+/**
+ * Cookie `vtex_segment`: es lo que regionaliza los precios de
+ * `/api/catalog_system/pub/products/search/`. El query param `?regionId=` NO
+ * sirve — catalog_system lo ignora y sigue devolviendo el precio del catálogo
+ * sin regionalizar (que en Carrefour no corresponde a ninguna región real).
+ *
+ * `channel` va como JSON escapado DENTRO del JSON: es el shape que espera VTEX,
+ * no un bug de serialización. Verificado contra ambas cadenas (2026-07-20).
+ */
+export function buildVtexSegmentCookie(regionId: string): string {
+  const payload = {
+    regionId,
+    channel: JSON.stringify({ salesChannel: '1' }),
+    countryCode: 'ARG',
+  };
+  return `vtex_segment=${Buffer.from(JSON.stringify(payload)).toString('base64')}`;
+}
+
 async function vtexGet<T>(
   host: string,
   pathAndQuery: string,
   schema: z.ZodType<T>,
   ctx: LogCtx,
+  regionId?: string,
 ): Promise<Result<T, VtexError>> {
   const limit = limiterFor(host);
   const url = `https://${host}${pathAndQuery}`;
+  const cookie = regionId !== undefined ? buildVtexSegmentCookie(regionId) : undefined;
 
   const doRequest = (): Promise<unknown> =>
     limit(async () => {
       await sleep(jitter());
       const res = await request(url, {
         method: 'GET',
-        headers: { 'user-agent': USER_AGENT, accept: 'application/json' },
+        headers: {
+          'user-agent': USER_AGENT,
+          accept: 'application/json',
+          ...(cookie !== undefined ? { cookie } : {}),
+        },
         headersTimeout: REQUEST_TIMEOUT_MS,
         bodyTimeout: REQUEST_TIMEOUT_MS,
       });
@@ -221,20 +245,26 @@ export function fetchCategoryTree(
   );
 }
 
+// `regionId` es obligatorio en todo fetch que devuelva precios: sin la cookie,
+// VTEX responde el precio del catálogo sin regionalizar. Que sea un parámetro
+// requerido (y no opcional con default) es a propósito — así el compilador marca
+// cualquier call site nuevo que se olvide de la región, en vez de dejarlo
+// scrapeando el precio fantasma en silencio.
 export function fetchProductsByCategory(
   host: string,
   categoryId: string,
   from: number,
   to: number,
+  regionId: string,
 ): Promise<Result<unknown[], VtexError>> {
   const query = `/api/catalog_system/pub/products/search/?fq=C:${categoryId}&_from=${from}&_to=${to}`;
-  return vtexGet(host, query, productListSchema, {
+  return vtexGet(
     host,
-    categoryId,
-    from,
-    to,
-    step: 'products_by_category',
-  });
+    query,
+    productListSchema,
+    { host, categoryId, from, to, step: 'products_by_category' },
+    regionId,
+  );
 }
 
 /**
@@ -246,9 +276,35 @@ export function fetchProductsByCategory(
 export function fetchProductsByEan(
   host: string,
   ean: string,
+  regionId: string,
 ): Promise<Result<unknown[], VtexError>> {
   const query = `/api/catalog_system/pub/products/search/?fq=alternateIds_Ean:${encodeURIComponent(ean)}`;
-  return vtexGet(host, query, productListSchema, { host, ean, step: 'products_by_ean' });
+  return vtexGet(
+    host,
+    query,
+    productListSchema,
+    { host, ean, step: 'products_by_ean' },
+    regionId,
+  );
+}
+
+/**
+ * Igual que `fetchProductsByEan` pero SIN la cookie de región: devuelve el precio
+ * del catálogo sin regionalizar. No sirve para cargar datos —ese precio no
+ * corresponde a ninguna región real en Carrefour— y existe solo para que el guard
+ * de regionalización pueda contrastarlo contra el precio regional y detectar que
+ * la cookie dejó de funcionar. Ver `scrapers/region-guard.ts`.
+ */
+export function fetchProductsByEanUnregionalized(
+  host: string,
+  ean: string,
+): Promise<Result<unknown[], VtexError>> {
+  const query = `/api/catalog_system/pub/products/search/?fq=alternateIds_Ean:${encodeURIComponent(ean)}`;
+  return vtexGet(host, query, productListSchema, {
+    host,
+    ean,
+    step: 'products_by_ean_unregionalized',
+  });
 }
 
 export function fetchProductsByBrand(
@@ -257,14 +313,14 @@ export function fetchProductsByBrand(
   brandId: number,
   from: number,
   to: number,
+  regionId: string,
 ): Promise<Result<unknown[], VtexError>> {
   const query = `/api/catalog_system/pub/products/search/?fq=C:${categoryId}&fq=B:${brandId}&_from=${from}&_to=${to}`;
-  return vtexGet(host, query, productListSchema, {
+  return vtexGet(
     host,
-    categoryId,
-    brandId,
-    from,
-    to,
-    step: 'products_by_brand',
-  });
+    query,
+    productListSchema,
+    { host, categoryId, brandId, from, to, step: 'products_by_brand' },
+    regionId,
+  );
 }

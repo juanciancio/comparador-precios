@@ -39,6 +39,7 @@ interface CurrentRow {
 interface PhInsert {
   retailer_id: number;
   ean: string;
+  region_id: string;
   valid_from: string;
   valid_to: string | null;
   price: number;
@@ -90,10 +91,17 @@ function unchanged(eff: Effective, cur: CurrentRow): boolean {
   );
 }
 
-function insertFrom(retailerId: number, ean: string, eff: Effective, today: string): PhInsert {
+function insertFrom(
+  retailerId: number,
+  regionId: string,
+  ean: string,
+  eff: Effective,
+  today: string,
+): PhInsert {
   return {
     retailer_id: retailerId,
     ean,
+    region_id: regionId,
     valid_from: today,
     valid_to: null,
     price: eff.price,
@@ -112,6 +120,7 @@ function insertFrom(retailerId: number, ean: string, eff: Effective, today: stri
  */
 export function loadRun(
   retailerId: number,
+  regionId: string,
   rows: ExtractedSku[],
   log: Logger,
 ): Promise<Result<LoadResult, DbError>> {
@@ -123,7 +132,8 @@ export function loadRun(
       const today = todayRow[0]!.today;
 
       const knownRows = await tx<{ ean: string }[]>`
-        SELECT ean FROM retailer_products WHERE retailer_id = ${retailerId}
+        SELECT ean FROM retailer_products
+        WHERE retailer_id = ${retailerId} AND region_id = ${regionId}
       `;
       const knownEans = new Set(knownRows.map((r) => r.ean));
 
@@ -134,7 +144,7 @@ export function loadRun(
                has_promo, promo_description,
                discount_highlight, is_available
         FROM price_history
-        WHERE retailer_id = ${retailerId} AND valid_to IS NULL
+        WHERE retailer_id = ${retailerId} AND region_id = ${regionId} AND valid_to IS NULL
       `;
       const currentByEan = new Map(curRows.map((r) => [r.ean, r]));
 
@@ -221,7 +231,7 @@ export function loadRun(
         survivors.push({ row, eff });
 
         if (!cur) {
-          toInsert.push(insertFrom(retailerId, row.ean, eff, today));
+          toInsert.push(insertFrom(retailerId, regionId, row.ean, eff, today));
           result.priceNew += 1;
         } else if (unchanged(eff, cur)) {
           if (cur.price_without_discount === null && eff.priceWithoutDiscount !== null) {
@@ -235,7 +245,7 @@ export function loadRun(
           result.priceChanged += 1;
         } else {
           toClose.push(row.ean);
-          toInsert.push(insertFrom(retailerId, row.ean, eff, today));
+          toInsert.push(insertFrom(retailerId, regionId, row.ean, eff, today));
           result.priceChanged += 1;
         }
       }
@@ -267,6 +277,7 @@ export function loadRun(
         const vals = part.map(({ row, eff }) => ({
           retailer_id: retailerId,
           ean: row.ean,
+          region_id: regionId,
           sku_id_retailer: row.skuId,
           product_id_retailer: row.productId,
           product_url: row.productUrl,
@@ -275,7 +286,7 @@ export function loadRun(
         }));
         await tx`
           INSERT INTO retailer_products ${tx(vals)}
-          ON CONFLICT (retailer_id, ean) DO UPDATE SET
+          ON CONFLICT (retailer_id, ean, region_id) DO UPDATE SET
             sku_id_retailer     = EXCLUDED.sku_id_retailer,
             product_id_retailer = EXCLUDED.product_id_retailer,
             product_url         = EXCLUDED.product_url,
@@ -289,7 +300,8 @@ export function loadRun(
       for (const part of chunks(toClose, CHUNK * 10)) {
         await tx`
           UPDATE price_history SET valid_to = ${today}::date - 1
-          WHERE retailer_id = ${retailerId} AND valid_to IS NULL AND ean = ANY(${part})
+          WHERE retailer_id = ${retailerId} AND region_id = ${regionId}
+            AND valid_to IS NULL AND ean = ANY(${part})
         `;
       }
       for (const part of chunks(toInsert, CHUNK)) {
@@ -304,14 +316,16 @@ export function loadRun(
             has_promo = ${u.eff.hasPromo}, promo_description = ${u.eff.promoDescription},
             discount_highlight = ${u.eff.discountHighlight},
             is_available = ${u.eff.isAvailable}, last_seen_at = NOW()
-          WHERE retailer_id = ${retailerId} AND ean = ${u.ean} AND valid_to IS NULL
+          WHERE retailer_id = ${retailerId} AND region_id = ${regionId}
+            AND ean = ${u.ean} AND valid_to IS NULL
         `;
       }
       // sin cambios -> solo last_seen_at
       for (const part of chunks(toBump, CHUNK * 10)) {
         await tx`
           UPDATE price_history SET last_seen_at = NOW()
-          WHERE retailer_id = ${retailerId} AND valid_to IS NULL AND ean = ANY(${part})
+          WHERE retailer_id = ${retailerId} AND region_id = ${regionId}
+            AND valid_to IS NULL AND ean = ANY(${part})
         `;
       }
       // backfill de price_without_discount en filas legacy (sin cambio de precio).
@@ -325,7 +339,8 @@ export function loadRun(
           UPDATE price_history ph
           SET price_without_discount = data.pwd, last_seen_at = NOW()
           FROM unnest(${eans}::text[], ${pwds}::numeric[]) AS data(ean, pwd)
-          WHERE ph.retailer_id = ${retailerId} AND ph.valid_to IS NULL AND ph.ean = data.ean
+          WHERE ph.retailer_id = ${retailerId} AND ph.region_id = ${regionId}
+            AND ph.valid_to IS NULL AND ph.ean = data.ean
         `;
       }
 
@@ -341,6 +356,7 @@ export function loadRun(
  */
 export function reap(
   retailerId: number,
+  regionId: string,
   seenEans: string[],
   log: Logger,
 ): Promise<Result<{ reaped: number }, DbError>> {
@@ -349,6 +365,7 @@ export function reap(
       UPDATE price_history
       SET valid_to = (last_seen_at AT TIME ZONE 'America/Argentina/Buenos_Aires')::date
       WHERE retailer_id = ${retailerId}
+        AND region_id = ${regionId}
         AND valid_to IS NULL
         AND NOT (ean = ANY(${seenEans}))
         AND (last_seen_at AT TIME ZONE 'America/Argentina/Buenos_Aires')::date

@@ -3,9 +3,16 @@ import { logger } from '../src/lib/logger.ts';
 import { fetchCategoryTree, fetchProductsByCategory } from '../src/lib/vtex-client.ts';
 import { vtexProductSchema } from '../src/schemas/vtex-product.ts';
 import { retailers } from '../src/config/retailers.ts';
+import { DEFAULT_REGION, regionIdFor } from '../src/config/regions.ts';
 import type { VtexCategory } from '../src/schemas/vtex-category.ts';
 
 const { host, treeDepth } = retailers.masonline;
+// Los smokes miran precios, así que van regionalizados como el scraper real: sin
+// la cookie mirarían el precio del catálogo sin regionalizar y "verificarían" algo
+// que no es lo que cargamos.
+const vtexRegionId = regionIdFor(DEFAULT_REGION, 'masonline');
+if (vtexRegionId === undefined) throw new Error('no regionId for masonline in src/config/regions.ts');
+
 
 // En Masonline, fq=C: solo devuelve productos a nivel top-level (departamento);
 // las categorías intermedias/hojas devuelven 0. Además hay departamentos basura
@@ -33,7 +40,7 @@ let category: VtexCategory | undefined;
 let raw: unknown[] = [];
 for (const [i, candidate] of departments.entries()) {
   if (i >= MAX_TRIES) break;
-  const productsResult = await fetchProductsByCategory(host, String(candidate.id), 0, 4);
+  const productsResult = await fetchProductsByCategory(host, String(candidate.id), 0, 4, vtexRegionId);
   if (!productsResult.ok) {
     log.warn({ categoryId: candidate.id, err: productsResult.error }, 'products fetch failed (trying next)');
     continue;

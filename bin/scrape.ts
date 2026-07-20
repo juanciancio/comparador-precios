@@ -3,7 +3,9 @@ import { z } from 'zod';
 import { logger } from '../src/lib/logger.ts';
 import { db, close } from '../src/lib/db.ts';
 import { retailers } from '../src/config/retailers.ts';
+import { DEFAULT_REGION, regionIdFor } from '../src/config/regions.ts';
 import { scrapeDepartments, type ScrapeStats } from '../src/scrapers/base-scraper.ts';
+import { assertRegionalPricing } from '../src/scrapers/region-guard.ts';
 import { extractSkus } from '../src/pipeline/extract.ts';
 import { normalizeSku, EanDeduper } from '../src/pipeline/transform.ts';
 import { loadRun, reap } from '../src/pipeline/load.ts';
@@ -56,6 +58,37 @@ async function main(): Promise<void> {
   }
   const retailerId = retailerRow.id;
 
+  // Dos identificadores distintos, fácil de confundir:
+  //  - `regionId`      : NUESTRA clave de región ('olavarria'). Es lo que se
+  //                      escribe en la columna region_id y lo que expone la API.
+  //                      Estable entre retailers.
+  //  - `vtexRegionId`  : el ID opaco de VTEX para esa región EN ESE retailer
+  //                      (cada cadena tiene su propia instancia). Solo se usa
+  //                      para armar la cookie; nunca toca la DB.
+  const regionId = DEFAULT_REGION;
+  const vtexRegionId = regionIdFor(DEFAULT_REGION, slug);
+  if (vtexRegionId === undefined) {
+    log.error(
+      { step: 'init', region: DEFAULT_REGION },
+      'no regionId configured for this retailer in src/config/regions.ts',
+    );
+    await close();
+    process.exitCode = 1;
+    return;
+  }
+
+  // Pre-flight: si la cookie no está regionalizando, abortar ANTES de escribir.
+  const guard = await assertRegionalPricing(retailer, vtexRegionId, log);
+  if (!guard.ok) {
+    log.error(
+      { step: 'region_guard', region: DEFAULT_REGION, err: guard.error },
+      'regionalization guard failed — aborting run without writing anything',
+    );
+    await close();
+    process.exitCode = 1;
+    return;
+  }
+
   const runRows = await sql<{ id: number }[]>`
     INSERT INTO scrape_runs (retailer_id, started_at, status)
     VALUES (${retailerId}, NOW(), 'running')
@@ -70,7 +103,8 @@ async function main(): Promise<void> {
   const baseRows = await sql<{ dept: string }[]>`
     SELECT DISTINCT split_part(p.category_path, '/', 2) AS dept
     FROM products p JOIN retailer_products rp ON rp.ean = p.ean
-    WHERE rp.retailer_id = ${retailerId} AND p.category_path IS NOT NULL
+    WHERE rp.retailer_id = ${retailerId} AND rp.region_id = ${regionId}
+      AND p.category_path IS NOT NULL
   `;
   const baseline = new Set(baseRows.map((r) => r.dept).filter((d) => d.length > 0));
 
@@ -97,7 +131,7 @@ async function main(): Promise<void> {
   };
 
   try {
-    for await (const scraped of scrapeDepartments(retailer, log, opts)) {
+    for await (const scraped of scrapeDepartments(retailer, vtexRegionId, log, opts)) {
       const extracted = extractSkus(scraped.raw, retailer.host);
       for (const warn of extracted.warnings) {
         if (warn.kind === 'no_ean') warnings.noEan += 1;
@@ -118,7 +152,7 @@ async function main(): Promise<void> {
       }
     }
 
-    const loadResult = await loadRun(retailerId, deduper.values(), log);
+    const loadResult = await loadRun(retailerId, regionId, deduper.values(), log);
     if (!loadResult.ok) {
       errors += 1;
       errorSummary.push({ step: 'load', error: String(loadResult.error.error) });
@@ -142,7 +176,7 @@ async function main(): Promise<void> {
         'skipping reaping: current run scraped below 80% of last successful',
       );
     } else {
-      const reapResult = await reap(retailerId, [...seenEans], log);
+      const reapResult = await reap(retailerId, regionId, [...seenEans], log);
       if (reapResult.ok) reaped = reapResult.value.reaped;
       else {
         errors += 1;

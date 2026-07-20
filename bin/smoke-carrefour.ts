@@ -7,6 +7,7 @@ import {
 } from '../src/lib/vtex-client.ts';
 import { vtexProductSchema } from '../src/schemas/vtex-product.ts';
 import { retailers } from '../src/config/retailers.ts';
+import { DEFAULT_REGION, regionIdFor } from '../src/config/regions.ts';
 import type { VtexCategory } from '../src/schemas/vtex-category.ts';
 
 /**
@@ -17,6 +18,12 @@ import type { VtexCategory } from '../src/schemas/vtex-category.ts';
  */
 
 const { host, treeDepth } = retailers.carrefour;
+// Los smokes miran precios, así que van regionalizados como el scraper real: sin
+// la cookie mirarían el precio del catálogo sin regionalizar y "verificarían" algo
+// que no es lo que cargamos.
+const vtexRegionId = regionIdFor(DEFAULT_REGION, 'carrefour');
+if (vtexRegionId === undefined) throw new Error('no regionId for carrefour in src/config/regions.ts');
+
 const log = logger.child({ retailer: 'carrefour', step: 'smoke' });
 
 // Heurística amplia de "departamento basura" (solo para reportar candidatos, no
@@ -68,7 +75,7 @@ const probes = [...realDepts.slice(0, 4), ...realDepts.slice(-2)].filter(
 let primary: VtexCategory | undefined;
 let primaryRaw: unknown[] = [];
 for (const d of probes) {
-  const r = await fetchProductsByCategory(host, String(d.id), 0, 49);
+  const r = await fetchProductsByCategory(host, String(d.id), 0, 49, vtexRegionId);
   if (!r.ok) {
     // eslint-disable-next-line no-console
     console.log(`  [${d.id}] ${d.name} -> ERROR ${JSON.stringify(r.error).slice(0, 120)}`);
@@ -98,7 +105,7 @@ const leaf =
   primary.children.find((c) => c.children.length === 0);
 
 if (intermediate) {
-  const r = await fetchProductsByCategory(host, String(intermediate.id), 0, 49);
+  const r = await fetchProductsByCategory(host, String(intermediate.id), 0, 49, vtexRegionId);
   const n = r.ok ? r.value.length : -1;
   // eslint-disable-next-line no-console
   console.log(
@@ -111,7 +118,7 @@ if (intermediate) {
   console.log('  (no intermediate node found under primary department)');
 }
 if (leaf) {
-  const r = await fetchProductsByCategory(host, String(leaf.id), 0, 49);
+  const r = await fetchProductsByCategory(host, String(leaf.id), 0, 49, vtexRegionId);
   const n = r.ok ? r.value.length : -1;
   // eslint-disable-next-line no-console
   console.log(
@@ -129,7 +136,7 @@ section('4) EAN population (first 20 products of primary department)');
 // Aseguramos tener al menos 20 productos del primary department.
 let raw20 = primaryRaw;
 if (raw20.length < 20) {
-  const more = await fetchProductsByCategory(host, String(primary.id), raw20.length, 49);
+  const more = await fetchProductsByCategory(host, String(primary.id), raw20.length, 49, vtexRegionId);
   if (more.ok) raw20 = [...raw20, ...more.value];
 }
 raw20 = raw20.slice(0, 20);

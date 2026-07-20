@@ -56,14 +56,15 @@ async function* paginate(
   brandId: number | undefined,
   log: Logger,
   state: PageState,
+  vtexRegionId: string,
 ): AsyncGenerator<unknown> {
   state.capHit = false;
   for (let from = 0; from < PAGINATION_CAP; from += PAGE_STEP) {
     const to = from + PAGE_STEP - 1;
     const result =
       brandId === undefined
-        ? await fetchProductsByCategory(host, String(categoryId), from, to)
-        : await fetchProductsByBrand(host, String(categoryId), brandId, from, to);
+        ? await fetchProductsByCategory(host, String(categoryId), from, to, vtexRegionId)
+        : await fetchProductsByBrand(host, String(categoryId), brandId, from, to, vtexRegionId);
 
     if (!result.ok) {
       log.error(
@@ -89,11 +90,12 @@ async function* scrapeDepartment(
   host: string,
   department: { id: number; name: string },
   log: Logger,
+  vtexRegionId: string,
 ): AsyncGenerator<unknown> {
   const brandIds = new Set<number>();
   const state: PageState = { capHit: false };
 
-  for await (const raw of paginate(host, department.id, undefined, log, state)) {
+  for await (const raw of paginate(host, department.id, undefined, log, state, vtexRegionId)) {
     const brandId = readBrandId(raw);
     if (brandId !== null) brandIds.add(brandId);
     yield raw;
@@ -107,7 +109,7 @@ async function* scrapeDepartment(
   );
   for (const brandId of brandIds) {
     const brandState: PageState = { capHit: false };
-    for await (const raw of paginate(host, department.id, brandId, log, brandState)) {
+    for await (const raw of paginate(host, department.id, brandId, log, brandState, vtexRegionId)) {
       yield raw;
     }
     if (brandState.capHit) {
@@ -126,6 +128,7 @@ async function* scrapeDepartment(
  */
 export async function* scrapeDepartments(
   retailer: RetailerConfig,
+  vtexRegionId: string,
   log: Logger,
   opts: ScrapeOptions = {},
 ): AsyncGenerator<ScrapedProduct> {
@@ -148,7 +151,7 @@ export async function* scrapeDepartments(
 
   for (const department of selected) {
     let rawCount = 0;
-    for await (const raw of scrapeDepartment(retailer.host, department, log)) {
+    for await (const raw of scrapeDepartment(retailer.host, department, log, vtexRegionId)) {
       rawCount += 1;
       const productId = readProductId(raw);
       if (productId !== null) {
