@@ -85,8 +85,9 @@ describe('region en el top-level de las respuestas con precios', () => {
 
   it('POST /products/:ean/refresh', async () => {
     if (!testEan) return;
+    // El controller fija @HttpCode(OK): el refresh no crea un recurso.
     const res = await request(http()).post(`/products/${testEan}/refresh`);
-    expect(res.status).toBe(201);
+    expect(res.status).toBe(200);
     expect(res.body.region).toBe(ACTIVE_REGION);
   });
 

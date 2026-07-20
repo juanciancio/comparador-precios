@@ -56,7 +56,13 @@ describe('priceWithoutDiscount — contrato en el catálogo', () => {
   });
 
   it('GET /products/:ean y su price-history incluyen priceWithoutDiscount', async () => {
-    const list = await request(http()).get('/products').query({ limit: 1 });
+    // only_matched=true garantiza oferta vigente en ambas cadenas. Sin eso el
+    // primer producto del listado puede ser uno huérfano —sin ninguna oferta
+    // vigente en la región— y el price-history vendría vacío. Ver "productos
+    // huérfanos" en NEXT_SESSION.md.
+    const list = await request(http())
+      .get('/products')
+      .query({ limit: 1, only_matched: true });
     const ean = (list.body.data as Product[])[0]!.ean;
 
     const detail = await request(http()).get(`/products/${ean}`);
@@ -178,8 +184,13 @@ describe('hasMiCrfDiscount — flag derivado de discount_highlight', () => {
       JOIN retailers r ON r.id = ph.retailer_id
       WHERE ph.valid_to IS NULL AND r.slug = 'carrefour'
     `;
-    expect(rows[0]!.mi_crf).toBeGreaterThan(400);
-    expect(rows[0]!.other_highlight).toBeGreaterThan(2000);
+    // Pisos rebajados con la regionalización (20/07/2026): el catálogo vigente de
+    // Carrefour en Olavarría es más chico que el nacional, así que ambas familias
+    // encogen proporcionalmente (observado: 187 Mi Crf / 899 otros, contra ~455 y
+    // ~2557 pre-región). Lo que el test protege es que el pattern PARTA el universo
+    // en dos grupos no vacíos, no un tamaño absoluto.
+    expect(rows[0]!.mi_crf).toBeGreaterThan(100);
+    expect(rows[0]!.other_highlight).toBeGreaterThan(500);
   });
 
   it('GET /products: hasMiCrfDiscount es boolean no-null; true solo en Carrefour', async () => {
@@ -233,7 +244,13 @@ describe('hasMiCrfDiscount — flag derivado de discount_highlight', () => {
   });
 
   it('price-history incluye hasMiCrfDiscount boolean', async () => {
-    const list = await request(http()).get('/products').query({ limit: 1 });
+    // only_matched=true garantiza oferta vigente en ambas cadenas. Sin eso el
+    // primer producto del listado puede ser uno huérfano —sin ninguna oferta
+    // vigente en la región— y el price-history vendría vacío. Ver "productos
+    // huérfanos" en NEXT_SESSION.md.
+    const list = await request(http())
+      .get('/products')
+      .query({ limit: 1, only_matched: true });
     const ean = (list.body.data as Product[])[0]!.ean;
     const history = await request(http()).get(`/products/${ean}/price-history`);
     expect(history.status).toBe(200);

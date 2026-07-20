@@ -332,6 +332,20 @@ Fase 3.A (Fases A→E) está **completa**. Lo que sigue:
   el costo: cada región es un catálogo entero (~1.500 requests por corrida por cadena),
   el costo es lineal y no hay zonas agrupables (16 ciudades medidas → 14 regionId
   distintos).
+- **11.143 productos huérfanos en `products` (28% de la tabla).** La migración
+  truncó `price_history` y `retailer_products` pero NO `products` (es metadata a
+  nivel EAN, no regional). Consecuencia no anticipada: quedaron 11.143 filas de
+  productos que ya no tienen ninguna oferta vigente — no se venden en Olavarría, o
+  están no disponibles en las dos cadenas. `GET /products` los devuelve con
+  `retailers: []`, o sea productos sin precio en un comparador de precios.
+
+  No es un bug nuevo del endpoint (un producto reapeado siempre pudo quedar sin
+  ofertas), pero la migración lo pasó de marginal a 1 de cada 4. **Decisión
+  pendiente de Juan**: (a) borrarlos en una migración de limpieza —se recrean solos
+  si el producto reaparece, se pierde solo `first_seen_at` de productos que no
+  podemos cotizar—, (b) filtrar `/products` para exigir ≥1 oferta vigente —cambia
+  los `total` que ve el frontend—, o (c) dejarlo y que el frontend los esconda.
+
 - **El guard usa un EAN sentinel hardcodeado** (`7790070012050`, Aceite Cocinero
   900ml) por retailer. Si ese producto sale del catálogo, el guard falla con
   `sentinel_not_found` y aborta la corrida. Es ruidoso a propósito (mejor que

@@ -55,7 +55,13 @@ describe('listPrice en el catálogo', () => {
   });
 
   it('GET /products/:ean y su price-history exponen listPrice', async () => {
-    const list = await request(http()).get('/products').query({ limit: 1 });
+    // only_matched=true garantiza oferta vigente en ambas cadenas. Sin eso el
+    // primer producto del listado puede ser uno huérfano —sin ninguna oferta
+    // vigente en la región— y el price-history vendría vacío. Ver "productos
+    // huérfanos" en NEXT_SESSION.md.
+    const list = await request(http())
+      .get('/products')
+      .query({ limit: 1, only_matched: true });
     const ean = (list.body.data as Product[])[0]!.ean;
 
     const detail = await request(http()).get(`/products/${ean}`);

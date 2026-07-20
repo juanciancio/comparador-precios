@@ -17,10 +17,15 @@ interface Row {
 }
 
 describe('GET /compare', () => {
-  it('devuelve más de 3000 matches reales', async () => {
+  it('devuelve miles de matches reales', async () => {
+    // El piso bajó de 3000 a 2500 con la regionalización (20/07/2026): pre-región
+    // matcheaban 4.119 productos, en Olavarría matchean 2.995. No es una regresión
+    // ni un test aflojado — la baja es el dato: sobre el catálogo regional real hay
+    // menos productos disponibles en ambas cadenas a la vez. El piso sigue siendo
+    // una cota inferior con margen, no el valor observado.
     const res = await request(http()).get('/compare').query({ limit: 1 });
     expect(res.status).toBe(200);
-    expect(res.body.pagination.total).toBeGreaterThan(3000);
+    expect(res.body.pagination.total).toBeGreaterThan(2500);
   });
 
   it('NUNCA devuelve marca Genérico/Generico (regla de negocio principal)', async () => {
