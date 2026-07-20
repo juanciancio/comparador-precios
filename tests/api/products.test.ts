@@ -272,15 +272,15 @@ describe('GET /products/:ean', () => {
   it('devuelve el producto con EAN válido', async () => {
     const res = await request(http()).get(`/products/${KNOWN_EAN}`);
     expect(res.status).toBe(200);
-    expect(res.body.ean).toBe(KNOWN_EAN);
-    expect(Array.isArray(res.body.retailers)).toBe(true);
+    expect(res.body.product.ean).toBe(KNOWN_EAN);
+    expect(Array.isArray(res.body.product.retailers)).toBe(true);
   });
 
   it('normaliza el EAN con padding de ceros', async () => {
     const res = await request(http()).get(`/products/0${KNOWN_EAN}`);
     expect(res.status).toBe(200);
     // El EAN en la respuesta viene canónico (sin el cero de padding).
-    expect(res.body.ean).toBe(KNOWN_EAN);
+    expect(res.body.product.ean).toBe(KNOWN_EAN);
   });
 
   it('404 con EAN inexistente', async () => {

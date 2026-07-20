@@ -70,6 +70,8 @@ export const CompareRowSchema = z.object({
 export class CompareRowDto extends createZodDto(CompareRowSchema) {}
 
 export const CompareResponseSchema = z.object({
+  /** Región de la que son estos precios. Ver src/config/regions.ts. */
+  region: z.string(),
   data: z.array(CompareRowSchema),
   pagination: z.object({
     limit: z.number(),
@@ -81,7 +83,7 @@ export class CompareResponseDto extends createZodDto(CompareResponseSchema) {}
 
 const CountPct = z.object({ count: z.number(), pct: z.number() });
 
-export const CompareStatsSchema = z.object({
+const CompareStatsDataSchema = z.object({
   total_matched: z.number(),
   diff_histogram: z.array(
     z.object({ bucket: z.string(), count: z.number(), pct: z.number() }),
@@ -96,7 +98,19 @@ export const CompareStatsSchema = z.object({
     carrefour_only: z.number(),
   }),
 });
+/**
+ * `region` vive solo en el envelope de respuesta, no en el tipo que produce el
+ * repositorio: la región es contexto de la request (qué región sirve la API),
+ * no un dato que salga de la query de estadísticas.
+ */
+export const CompareStatsSchema = CompareStatsDataSchema.extend({
+  /** Región de la que son estos precios. Ver src/config/regions.ts. */
+  region: z.string(),
+});
 export class CompareStatsDto extends createZodDto(CompareStatsSchema) {}
 
 export type CompareRow = z.infer<typeof CompareRowSchema>;
-export type CompareStats = z.infer<typeof CompareStatsSchema>;
+/** Lo que devuelve el repositorio (sin `region`). */
+export type CompareStats = z.infer<typeof CompareStatsDataSchema>;
+/** Lo que devuelve el endpoint. */
+export type CompareStatsResponse = z.infer<typeof CompareStatsSchema>;

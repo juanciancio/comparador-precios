@@ -60,7 +60,7 @@ describe('listPrice en el catálogo', () => {
 
     const detail = await request(http()).get(`/products/${ean}`);
     expect(detail.status).toBe(200);
-    for (const o of detail.body.retailers as Offer[]) expect(o.listPrice).not.toBeNull();
+    for (const o of detail.body.product.retailers as Offer[]) expect(o.listPrice).not.toBeNull();
 
     const history = await request(http()).get(`/products/${ean}/price-history`);
     expect(history.status).toBe(200);

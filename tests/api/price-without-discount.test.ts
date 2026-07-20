@@ -61,7 +61,8 @@ describe('priceWithoutDiscount — contrato en el catálogo', () => {
 
     const detail = await request(http()).get(`/products/${ean}`);
     expect(detail.status).toBe(200);
-    for (const o of detail.body.retailers as Offer[]) expect(o).toHaveProperty('priceWithoutDiscount');
+    for (const o of detail.body.product.retailers as Offer[])
+      expect(o).toHaveProperty('priceWithoutDiscount');
 
     const history = await request(http()).get(`/products/${ean}/price-history`);
     expect(history.status).toBe(200);
@@ -204,7 +205,9 @@ describe('hasMiCrfDiscount — flag derivado de discount_highlight', () => {
     expect(picked.length).toBe(1);
     const res = await request(http()).get(`/products/${picked[0]!.ean}`);
     expect(res.status).toBe(200);
-    const carrefour = (res.body.retailers as Offer[]).find((o) => o.retailer === 'carrefour');
+    const carrefour = (res.body.product.retailers as Offer[]).find(
+      (o) => o.retailer === 'carrefour',
+    );
     expect(carrefour?.hasMiCrfDiscount).toBe(true);
   });
 
@@ -223,7 +226,9 @@ describe('hasMiCrfDiscount — flag derivado de discount_highlight', () => {
     expect(picked.length).toBe(1);
     const res = await request(http()).get(`/products/${picked[0]!.ean}`);
     expect(res.status).toBe(200);
-    const carrefour = (res.body.retailers as Offer[]).find((o) => o.retailer === 'carrefour');
+    const carrefour = (res.body.product.retailers as Offer[]).find(
+      (o) => o.retailer === 'carrefour',
+    );
     expect(carrefour?.hasMiCrfDiscount).toBe(false);
   });
 

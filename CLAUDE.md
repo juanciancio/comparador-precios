@@ -44,6 +44,83 @@ Estos puntos ya se verificaron manualmente contra los sitios reales. Son la base
     **Asimetría entre cadenas:** Masonline **no expone nada** — cero `Teasers`, cero `DiscountHighLight`. Sus descuentos (20,1% del catálogo) son `list > price` sin explicación posible con los endpoints actuales. Cualquier feature que dependa de metadata de promo funciona **solo para Carrefour**. Ver `research/precios-descuento/HALLAZGOS.md`.
 
 
+15. **Los precios de VTEX son regionales, y el catálogo sin regionalizar devuelve un precio que nadie paga.** Verificado el 20/07/2026 sobre 16 ciudades: **14 `regionId` distintos y 13 combinaciones de precio distintas** — no hay "zonas" agrupables, cada región es prácticamente la suya. El default de Carrefour **no coincide con ninguna región real** (es un fantasma del catálogo sin regionalizar); el de Masonline coincide con CABA. Sobre 14 productos comparables: 14/14 con algún precio distinto al de Olavarría, **3/14 cambian de ganador cross-retailer** con la tolerancia del 1% (o sea el veredicto, que es el producto, estaba mal), y 5/14 no se venden en Olavarría pero se mostraban disponibles. **La disponibilidad también es regional**: en el depto Almacén de Carrefour, 51/500 SKUs no se venden en Olavarría contra 2/500 sin regionalizar.
+
+    **El fix es la cookie `vtex_segment`, no un endpoint nuevo.** El query param `?regionId=` NO sirve: `catalog_system` lo ignora. La cookie es base64 de un JSON donde `channel` va como JSON escapado **dentro** del JSON — no es un bug de serialización, es el shape que espera VTEX (ver `buildVtexSegmentCookie`). Cero 429 extra por mandarla (40 requests de prueba, 0 hits). Ver "Regionalización" abajo y `docs/REGIONALIZACION.md` en chango-web.
+
+16. **Un producto no vendido en la región se devuelve igual, marcado no disponible — nunca desaparece del listado.** Pero las cadenas difieren en qué precio dejan: **Masonline pone `Price: 0`**, **Carrefour conserva el precio** (`IsAvailable: false`, `AvailableQuantity: 0`, `Price > 0`). La regla de load "primer avistaje con `IsAvailable:false` o `Price<=0` → skip completo" cubre ambos casos, así que **hoy esos productos simplemente no entran a la DB**. Consecuencia conocida y aceptada: el backend **no distingue** "no se vende en tu zona" de "no está en el catálogo de esa cadena". Habilitar esa distinción requiere permitir `price NULL` en `price_history`, lo que rompe el invariante duro de "toda fila refleja un precio real observado" — se decidió postergarlo a una fase propia (Juan, 20/07/2026).
+
+---
+
+## Regionalización
+
+**Toda oferta y toda vigencia están keyeadas por región.** `price_history` y
+`retailer_products` tienen `region_id TEXT NOT NULL` y su PK lo incluye:
+
+```
+retailer_products : (retailer_id, ean, region_id)
+price_history     : (retailer_id, ean, region_id, valid_from)
+```
+
+Hoy se carga **una sola región: `olavarria` (CP 7400)**, definida en
+`src/config/regions.ts` junto con `DEFAULT_REGION`. El esquema quedó preparado
+para más desde el día uno a propósito: sumar una región tiene que ser
+configuración, no otra migración de PK sobre una tabla ya grande.
+
+### Dos identificadores distintos, fácil de confundir
+
+- **`region_id` / `ACTIVE_REGION`**: *nuestra* clave (`'olavarria'`). Es lo que se
+  escribe en la columna, lo que filtran las queries y lo que expone la API.
+  Estable entre retailers.
+- **`vtexRegionId`**: el ID opaco de VTEX para esa región **en ese retailer**
+  (cada cadena tiene su propia instancia). Solo se usa para armar la cookie;
+  **nunca toca la DB**.
+
+Confundirlos escribe filas con un `region_id` que es un blob base64 por cadena, y
+rompe todo JOIN cross-retailer en silencio.
+
+### Cómo agregar una región nueva
+
+1. Obtener el `regionId` de VTEX **de cada retailer** para el CP:
+   `curl 'https://{host}/api/checkout/pub/regions?country=ARG&postalCode={cp}'`
+   (devuelve `[{ id, sellers }]`; el `id` es el que va).
+2. Agregar la entrada a `regions` en `src/config/regions.ts`.
+3. Correr el scraper. No hace falta migración.
+
+Los IDs se cachean estáticos: **no** se resuelven en runtime al arrancar. Cambian
+muy de vez en cuando y un fetch al arranque agrega un punto de falla a cambio de nada.
+
+### Guard del scraper (defensa en profundidad)
+
+`src/scrapers/region-guard.ts` corre **antes** de escribir una sola fila: pide el
+EAN sentinel con cookie y sin cookie, y **exige que difieran**. Si dan igual, la
+cookie no está regionalizando y la corrida aborta sin escribir nada.
+
+Corre pre-scrape, no post-scrape, porque el punto es *no llegar a escribir*
+precios fantasma; un chequeo posterior detecta el problema con la tabla ya
+contaminada. Y compara contra el precio sin cookie en vez de contra un valor
+esperado fijo porque **un umbral absoluto se pudre con la inflación**: el margen
+se agota en meses y el guard empieza a abortar corridas sanas, que es como
+termina apagado.
+
+### API
+
+Los endpoints con precios devuelven `region` en el top-level y filtran por
+`ACTIVE_REGION` (`src/api/config/region.ts`) en **toda** query a `price_history` /
+`retailer_products`. No hay `?region=` todavía.
+
+Olvidarse el filtro en una query no da error: con una segunda región cargada,
+`only_matched` y `matched_count` cuentan la misma cadena dos veces y marcan como
+"matcheado" un producto que existe en una sola.
+
+`GET /products/:ean` pasó de devolver el Product pelado a `{ region, product }`.
+`region` describe la respuesta, no al producto: el mismo EAN existe en todas las
+regiones con precios distintos, y meterlo en `ProductSchema` lo repetiría en cada
+item de `/products` y `/search`.
+
+`/health`, `/categories`, `/brands` y `/search/facets` no llevan `region` — su
+contenido no es regional, y decir lo contrario sería afirmar algo falso.
+
 ---
 
 ## Endpoints VTEX que usamos (los únicos)
@@ -223,13 +300,14 @@ CREATE INDEX idx_products_last_seen ON products(last_seen_at);
 CREATE TABLE retailer_products (
   retailer_id          SMALLINT NOT NULL REFERENCES retailers(id),
   ean                  TEXT NOT NULL REFERENCES products(ean),
+  region_id            TEXT NOT NULL,       -- clave nuestra ('olavarria'), NO el ID de VTEX
   sku_id_retailer      TEXT NOT NULL,       -- itemId en VTEX
   product_id_retailer  TEXT NOT NULL,       -- productId en VTEX
   product_url          TEXT,
   retailer_name        TEXT,                -- nombre como lo llama esta cadena
   is_available         BOOLEAN NOT NULL DEFAULT true,
   last_seen_at         TIMESTAMPTZ NOT NULL DEFAULT NOW(),
-  PRIMARY KEY (retailer_id, ean)
+  PRIMARY KEY (retailer_id, ean, region_id)
 );
 
 CREATE INDEX idx_rp_sku ON retailer_products(retailer_id, sku_id_retailer);
@@ -238,6 +316,7 @@ CREATE INDEX idx_rp_sku ON retailer_products(retailer_id, sku_id_retailer);
 CREATE TABLE price_history (
   retailer_id       SMALLINT NOT NULL REFERENCES retailers(id),
   ean               TEXT NOT NULL REFERENCES products(ean),
+  region_id         TEXT NOT NULL,           -- ver seccion Regionalizacion
   valid_from        DATE NOT NULL,           -- primer día que rige este precio
   valid_to          DATE,                    -- último día vigente (NULL = precio actual)
   price             NUMERIC(12, 2) NOT NULL,   -- efectivo: descuentos YA aplicados
@@ -248,12 +327,12 @@ CREATE TABLE price_history (
   is_available      BOOLEAN NOT NULL,
   first_seen_at     TIMESTAMPTZ NOT NULL DEFAULT NOW(),
   last_seen_at      TIMESTAMPTZ NOT NULL DEFAULT NOW(),
-  PRIMARY KEY (retailer_id, ean, valid_from)
+  PRIMARY KEY (retailer_id, ean, region_id, valid_from)
 );
 
 -- Índice parcial: acelera "cuál es el precio actual de X"
 CREATE UNIQUE INDEX idx_ph_current
-  ON price_history(retailer_id, ean)
+  ON price_history(retailer_id, ean, region_id)
   WHERE valid_to IS NULL;
 
 -- Índice para queries históricas por producto
@@ -360,7 +439,7 @@ filas en Masonline pese a sus 2.518 productos con descuento real. Ver
 ```sql
 SELECT price, list_price, has_promo
 FROM price_history
-WHERE retailer_id = $1 AND ean = $2 AND valid_to IS NULL;
+WHERE retailer_id = $1 AND ean = $2 AND region_id = $3 AND valid_to IS NULL;
 ```
 
 Con el índice parcial, esto es sub-milisegundo incluso con millones de filas históricas.
@@ -436,6 +515,8 @@ de esa cadena, o el path matcheado te miente.
 11. **No hacer INSERT ciego en `price_history`.** Toda escritura pasa por el algoritmo de la sección "Lógica de load para price_history". Si ves código que hace `INSERT INTO price_history` sin haber consultado antes la fila vigente, es un bug. Si querés "guardar el precio de hoy" y ya está guardado el mismo precio, la respuesta correcta es NO ESCRIBIR NADA.
 
 12. **No comparar EANs sin normalizar.** Cualquier lógica que compare EANs entre retailers (matching, JOIN, dedup cross-retailer) opera sobre EANs ya normalizados por `normalizeEan` (ver descubrimiento 9). Si ves código que hace `ean === otherEan` con EANs crudos de fuentes distintas, es un bug: un mismo producto físico puede venir con o sin padding de ceros y el string-compare lo perdería.
+
+13. **No consultar `price_history` ni `retailer_products` sin filtrar por región.** Toda query —del pipeline, de la API o de un script— filtra por `region_id`. Omitirlo no rompe hoy (hay una sola región cargada) y por eso es peligroso: rompe en silencio el día que se cargue la segunda, mezclando ofertas de dos ciudades como si fueran del mismo lugar. Mismo criterio que el punto 12 con los EANs sin normalizar.
 
 ---
 

@@ -134,7 +134,24 @@ export const ProductSchema = z.object({
 });
 export class ProductDto extends createZodDto(ProductSchema) {}
 
+/**
+ * `GET /products/:ean` devolvía el Product pelado. Ahora va envuelto: `region` es
+ * propiedad de la RESPUESTA (de qué región son estos precios), no del producto —
+ * el mismo EAN existe en todas las regiones con precios distintos. Ponerlo dentro
+ * de ProductSchema lo filtraría además a cada item de /products y /search,
+ * repetido N veces por página y sugiriendo que un producto "pertenece" a una región.
+ * Es breaking change para el frontend; se absorbe en el `pnpm api:sync`.
+ */
+export const GetProductResponseSchema = z.object({
+  /** Región de la que son estos precios. Ver src/config/regions.ts. */
+  region: z.string(),
+  product: ProductSchema,
+});
+export class GetProductResponseDto extends createZodDto(GetProductResponseSchema) {}
+
 export const ListProductsResponseSchema = z.object({
+  /** Región de la que son estos precios. Ver src/config/regions.ts. */
+  region: z.string(),
   data: z.array(ProductSchema),
   pagination: z.object({
     limit: z.number(),
@@ -159,12 +176,16 @@ export const PriceHistoryEntrySchema = z.object({
 });
 
 export const PriceHistoryResponseSchema = z.object({
+  /** Región de la que son estos precios. Ver src/config/regions.ts. */
+  region: z.string(),
   ean: z.string(),
   history: z.array(PriceHistoryEntrySchema),
 });
 export class PriceHistoryResponseDto extends createZodDto(PriceHistoryResponseSchema) {}
 
 export const RefreshResponseSchema = z.object({
+  /** Región de la que son estos precios. Ver src/config/regions.ts. */
+  region: z.string(),
   product: ProductSchema,
   // snake_case fijado por contrato (ver docs/NEXT_SESSION.md).
   was_refreshed: z.boolean(),

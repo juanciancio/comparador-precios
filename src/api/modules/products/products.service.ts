@@ -18,17 +18,21 @@ import type {
   PriceHistoryQueryDto,
   RecentChangesQueryDto,
 } from './dto/products.dto.ts';
+import { ACTIVE_REGION } from '../../config/region.ts';
+import { DEFAULT_REGION, regionIdFor } from '../../../config/regions.ts';
 
 /** Ventana de cache comunitario del refresh on-demand. Protege a VTEX de ráfagas.
  * Configurable vía REFRESH_TTL_SECONDS (default 60; se baja en tests). */
 const REFRESH_TTL_MS = apiEnv.REFRESH_TTL_SECONDS * 1000;
 
 export interface ListProductsResult {
+  region: string;
   data: Product[];
   pagination: { limit: number; offset: number; total: number };
 }
 
 export interface RefreshResult {
+  region: string;
   product: Product;
   was_refreshed: boolean;
   updated_at: string;
@@ -51,6 +55,7 @@ export class ProductsService {
     };
     const { data, total } = await this.repo.listProducts(filters);
     return {
+      region: ACTIVE_REGION,
       data,
       pagination: { limit: query.limit, offset: query.offset, total },
     };
@@ -66,17 +71,22 @@ export class ProductsService {
     });
     // Mismo envelope que GET /products: el frontend reusa el cliente tipado sin
     // mapeo extra. No hay paginación real acá (es un top-N), así que offset = 0.
-    return { data, pagination: { limit: query.limit, offset: 0, total } };
+    return {
+      region: ACTIVE_REGION,
+      data,
+      pagination: { limit: query.limit, offset: 0, total },
+    };
   }
 
-  async getOne(rawEan: string): Promise<Product> {
+  async getOne(rawEan: string): Promise<{ region: string; product: Product }> {
     const ean = this.normalize(rawEan);
     const product = await this.repo.getProduct(ean);
     if (!product) throw new NotFoundException(`No existe producto con EAN ${ean}`);
-    return product;
+    return { region: ACTIVE_REGION, product };
   }
 
   async priceHistory(rawEan: string, query: PriceHistoryQueryDto): Promise<{
+    region: string;
     ean: string;
     history: PriceHistoryEntry[];
   }> {
@@ -93,7 +103,7 @@ export class ProductsService {
       to: query.to,
     };
     const history = await this.repo.priceHistory(ean, filters);
-    return { ean, history };
+    return { region: ACTIVE_REGION, ean, history };
   }
 
   async refresh(rawEan: string): Promise<RefreshResult> {
@@ -107,6 +117,7 @@ export class ProductsService {
       }
       const product = await this.repo.getProduct(ean);
       return {
+        region: ACTIVE_REGION,
         product: product!,
         was_refreshed: false,
         updated_at: new Date().toISOString(),
@@ -133,7 +144,12 @@ export class ProductsService {
         ? new Date(Math.max(...lastSeen)).toISOString()
         : new Date().toISOString();
 
-    return { product, was_refreshed: wasRefreshed, updated_at: updatedAt };
+    return {
+      region: ACTIVE_REGION,
+      product,
+      was_refreshed: wasRefreshed,
+      updated_at: updatedAt,
+    };
   }
 
   /**
@@ -155,7 +171,17 @@ export class ProductsService {
       }
       const log = logger.child({ service: 'api', step: 'refresh', ean, retailer: ref.slug });
 
-      const fetched = await fetchProductsByEan(config.host, ean);
+      // Mismo criterio que el scraper: sin la cookie de región el refresh
+      // traería el precio del catálogo sin regionalizar y lo escribiría bajo
+      // region_id = ACTIVE_REGION, contaminando justo la fila que el usuario
+      // pidió refrescar. Sin regionId configurado, no se refresca.
+      const vtexRegionId = regionIdFor(DEFAULT_REGION, ref.slug);
+      if (vtexRegionId === undefined) {
+        log.warn({}, 'no regionId configured for retailer, skipping refresh');
+        continue;
+      }
+
+      const fetched = await fetchProductsByEan(config.host, ean, vtexRegionId);
       if (!fetched.ok) {
         log.error({ err: fetched.error }, 'live fetch failed, skipping retailer');
         continue;
@@ -175,7 +201,7 @@ export class ProductsService {
         continue;
       }
 
-      const loaded = await loadRun(ref.retailerId, deduper.values(), log);
+      const loaded = await loadRun(ref.retailerId, ACTIVE_REGION, deduper.values(), log);
       if (!loaded.ok) {
         log.error({ err: loaded.error.error }, 'load failed during refresh');
         continue;

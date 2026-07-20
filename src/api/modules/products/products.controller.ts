@@ -17,6 +17,7 @@ import {
   PriceHistoryQueryDto,
   PriceHistoryResponseDto,
   ProductDto,
+  GetProductResponseDto,
   RecentChangesQueryDto,
   RefreshResponseDto,
 } from './dto/products.dto.ts';
@@ -131,6 +132,7 @@ export class ProductsController {
     type: ListProductsResponseDto,
     description: 'Top-N de productos con cambios recientes + total de la ventana.',
     example: {
+      region: 'olavarria',
       data: [PRODUCT_EXAMPLE],
       pagination: { limit: 8, offset: 0, total: 4058 },
     },
@@ -150,11 +152,15 @@ export class ProductsController {
       '`07790894902018` y `7790894902018` resuelven al mismo producto.',
   })
   @ApiParam({ name: 'ean', description: 'EAN del producto (se normaliza).', example: EAN_EXAMPLE })
-  @ApiOkResponse({ type: ProductDto, description: 'Producto con sus ofertas vigentes.', example: PRODUCT_EXAMPLE })
+  @ApiOkResponse({
+    type: GetProductResponseDto,
+    description: 'Producto con sus ofertas vigentes, en la región servida.',
+    example: { region: 'olavarria', product: PRODUCT_EXAMPLE },
+  })
   @ApiBadRequest()
   @ApiNotFound('No existe producto con ese EAN.')
   @ApiServerError()
-  getOne(@Param('ean') ean: string): Promise<ProductDto> {
+  getOne(@Param('ean') ean: string): Promise<GetProductResponseDto> {
     return this.products.getOne(ean);
   }
 

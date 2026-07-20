@@ -8,6 +8,7 @@ import {
 } from '../../../lib/diff-buckets.ts';
 import { MI_CRF_HIGHLIGHT_PATTERN } from '../../../lib/mi-crf.ts';
 import type { CompareRow, CompareStats } from './dto/compare.dto.ts';
+import { ACTIVE_REGION } from '../../config/region.ts';
 
 export interface CompareFilters {
   limit: number;
@@ -82,10 +83,12 @@ export class CompareRepository {
       JOIN price_history m
         ON m.ean = p.ean
         AND m.retailer_id = (SELECT id FROM retailers WHERE slug = 'masonline')
+        AND m.region_id = ${ACTIVE_REGION}
         AND m.valid_to IS NULL AND m.is_available
       JOIN price_history c
         ON c.ean = p.ean
         AND c.retailer_id = (SELECT id FROM retailers WHERE slug = 'carrefour')
+        AND c.region_id = ${ACTIVE_REGION}
         AND c.valid_to IS NULL AND c.is_available
       WHERE m.price > 0
         AND (p.brand IS NULL OR p.brand NOT IN ('Genérico', 'Generico'))
@@ -161,10 +164,12 @@ export class CompareRepository {
       JOIN price_history m
         ON m.ean = p.ean
         AND m.retailer_id = (SELECT id FROM retailers WHERE slug = 'masonline')
+        AND m.region_id = ${ACTIVE_REGION}
         AND m.valid_to IS NULL AND m.is_available
       JOIN price_history c
         ON c.ean = p.ean
         AND c.retailer_id = (SELECT id FROM retailers WHERE slug = 'carrefour')
+        AND c.region_id = ${ACTIVE_REGION}
         AND c.valid_to IS NULL AND c.is_available
       WHERE m.price > 0
         AND (p.brand IS NULL OR p.brand NOT IN ('Genérico', 'Generico'))
@@ -187,11 +192,13 @@ export class CompareRepository {
       WITH m AS (
         SELECT ean FROM price_history
         WHERE retailer_id = (SELECT id FROM retailers WHERE slug = 'masonline')
+          AND region_id = ${ACTIVE_REGION}
           AND valid_to IS NULL AND is_available
       ),
       c AS (
         SELECT ean FROM price_history
         WHERE retailer_id = (SELECT id FROM retailers WHERE slug = 'carrefour')
+          AND region_id = ${ACTIVE_REGION}
           AND valid_to IS NULL AND is_available
       )
       SELECT

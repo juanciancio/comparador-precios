@@ -41,6 +41,8 @@ export const SearchQuerySchema = z.object({
 export class SearchQueryDto extends createZodDto(SearchQuerySchema) {}
 
 export const SearchResponseSchema = z.object({
+  /** Región de la que son estos precios. Ver src/config/regions.ts. */
+  region: z.string(),
   query: z.string(),
   data: z.array(ProductSchema),
   pagination: z.object({

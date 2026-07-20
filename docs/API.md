@@ -90,6 +90,22 @@ queda en los logs, correlacionable por `trace_id`.
 
 ---
 
+### Región de los precios
+
+Todos los endpoints con precios devuelven **`region` en el top-level** de la
+respuesta (hoy siempre `"olavarria"`). No es decorativo: los precios de VTEX son
+distintos en cada región y una respuesta sin región no se puede interpretar.
+
+`GET /products/:ean` cambió de forma por esto: antes devolvía el producto pelado,
+ahora devuelve `{ region, product }`. La región describe la respuesta, no al
+producto — el mismo EAN existe en todas las regiones con precios distintos.
+
+`GET /health`, `/categories`, `/brands` y `/search/facets` **no** llevan `region`:
+su contenido no es regional.
+
+Todavía no hay `?region=` — la API sirve una sola región. Se agrega cuando haya
+una segunda cargada. Ver "Regionalización" en `CLAUDE.md`.
+
 ## Variables de entorno
 
 | Variable | Descripción | Default | Requerida |

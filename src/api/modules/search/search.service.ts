@@ -3,6 +3,7 @@ import { ProductsRepository, type ListFilters } from '../products/products.repos
 import type { ListProductsResult } from '../products/products.service.ts';
 import type { BrandFacet, SearchFacetsQueryDto } from './dto/facets.dto.ts';
 import type { SearchQueryDto } from './dto/search.dto.ts';
+import { ACTIVE_REGION } from '../../config/region.ts';
 
 /**
  * Partir `q` en términos. Único lugar donde se hace: /search y /search/facets
@@ -34,6 +35,7 @@ export class SearchService {
     };
     const { data, total } = await this.repo.listProducts(filters);
     return {
+      region: ACTIVE_REGION,
       query: query.q,
       data,
       pagination: { limit: query.limit, offset: query.offset, total },

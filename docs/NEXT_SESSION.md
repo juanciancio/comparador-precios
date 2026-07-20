@@ -7,6 +7,34 @@
 
 ## 1. Estado actual del proyecto
 
+- **🚨 REGIONALIZACIÓN IMPLEMENTADA (20/07/2026) — el histórico previo se borró.**
+  Descubrimos que el scraper pedía a VTEX sin región y traía el precio del catálogo
+  sin regionalizar: en Carrefour **no corresponde a ninguna región real** (fantasma),
+  en Masonline coincide con CABA. Impacto medido: 14/14 productos con precio distinto
+  al de Olavarría y **3/14 cambiaban de ganador cross-retailer** — el veredicto, que
+  es el producto, estaba mal en ~20% de las comparaciones.
+
+  Qué cambió:
+  - `price_history` y `retailer_products` tienen `region_id TEXT NOT NULL` en la PK
+    (migración `009_region_id.sql`), que además **truncó ambas tablas**: los 118.391
+    registros de historial previos no correspondían a ninguna región y no se podían
+    reetiquetar. La historia arranca de cero el 20/07/2026. `products` se mantuvo
+    (metadata a nivel EAN, no regional).
+  - El scraper manda la cookie `vtex_segment` por retailer. Región única cargada:
+    `olavarria` (CP 7400), en `src/config/regions.ts`.
+  - Guard pre-scrape (`src/scrapers/region-guard.ts`) que aborta la corrida si la
+    cookie dejó de regionalizar, antes de escribir nada.
+  - Los 8 endpoints con precios devuelven `region` en el top-level y filtran por
+    `ACTIVE_REGION`. **Breaking change**: `GET /products/:ean` pasó de devolver el
+    Product pelado a `{ region, product }`.
+
+  Ver "Regionalización" en `CLAUDE.md` y `docs/REGIONALIZACION.md` en chango-web.
+
+  **Pendiente del lado del frontend (fase B4-region, no se tocó acá):** correr
+  `pnpm api:sync`, adaptar el consumo de `GET /products/:ean`, y mostrar de qué
+  región son los precios. Durante los primeros días toda ficha va a caer en
+  "Todavía no hay suficiente historial" — es el comportamiento correcto.
+
 - **✅ Investigación de descuentos condicionales y programas de fidelidad completa
   (16/07/2026).** Hallazgos disponibles para la sesión de diseño de Fase B4 con Juan:
   `research/descuentos-condicionales-fidelidad/HALLAZGOS.md`. Titulares: (1) las promos
@@ -288,6 +316,26 @@ Fase 3.A (Fases A→E) está **completa**. Lo que sigue:
   `diff_pct > 200%`, precio absoluto > $500k, mismatch pack/unidad.
 
 **Fase 3.C (post-lanzamiento):** SSE broadcast (ver "Arquitectura de refresh de precios").
+
+**Deuda técnica abierta por la regionalización (20/07/2026):**
+
+- **"No se vende en tu zona" no es representable hoy.** Un producto que la cadena
+  no vende en Olavarría vuelve de VTEX marcado no disponible (Masonline con
+  `Price: 0`, Carrefour conservando el precio), y la regla de load lo skipea por
+  ser primer avistaje sin precio observable. Resultado: es indistinguible de "no
+  está en el catálogo de esa cadena". Habilitarlo requiere permitir `price NULL`
+  en `price_history`, que rompe el invariante de "toda fila refleja un precio real
+  observado" — decisión de Juan: fase propia, no se metió en este PR.
+- **Segunda región.** El esquema y la config están listos: agregar la entrada en
+  `src/config/regions.ts` y correr el scraper. Lo que falta es el `?region=` en los
+  endpoints (hoy sirven solo `DEFAULT_REGION`) y el selector en el frontend. Ojo con
+  el costo: cada región es un catálogo entero (~1.500 requests por corrida por cadena),
+  el costo es lineal y no hay zonas agrupables (16 ciudades medidas → 14 regionId
+  distintos).
+- **El guard usa un EAN sentinel hardcodeado** (`7790070012050`, Aceite Cocinero
+  900ml) por retailer. Si ese producto sale del catálogo, el guard falla con
+  `sentinel_not_found` y aborta la corrida. Es ruidoso a propósito (mejor que
+  silencioso), pero hay que cambiarle el EAN si pasa.
 
 ---
 

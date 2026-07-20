@@ -6,6 +6,7 @@ import { MI_CRF_HIGHLIGHT_PATTERN, isMiCrfDiscount } from '../../../lib/mi-crf.t
 import { InjectPg } from '../../common/database/database.tokens.ts';
 import { BrandCatalogService } from '../../common/brand/brand-catalog.service.ts';
 import type { Product, PriceHistoryEntry, RetailerOffer } from './dto/products.dto.ts';
+import { ACTIVE_REGION } from '../../config/region.ts';
 
 export interface RetailerInfo {
   id: number;
@@ -217,11 +218,13 @@ export class ProductsRepository {
           SELECT nxt.price, nxt.valid_to, nxt.is_available, nxt.first_seen_at
           FROM price_history nxt
           WHERE nxt.retailer_id = prev.retailer_id AND nxt.ean = prev.ean
+            AND nxt.region_id = prev.region_id
             AND nxt.valid_from > prev.valid_from
           ORDER BY nxt.valid_from ASC
           LIMIT 1
         ) cur ON TRUE
-        WHERE prev.valid_to IS NOT NULL
+        WHERE prev.region_id = ${ACTIVE_REGION}
+          AND prev.valid_to IS NOT NULL
           AND prev.price > 0
           AND cur.valid_to IS NULL
           AND cur.is_available
@@ -239,7 +242,8 @@ export class ProductsRepository {
             MAX(ph.price) FILTER (WHERE ph.retailer_id = ${masonlineId}) AS m_price,
             MAX(ph.price) FILTER (WHERE ph.retailer_id = ${carrefourId}) AS c_price
           FROM price_history ph
-          WHERE ph.ean = p.ean AND ph.valid_to IS NULL AND ph.is_available
+          WHERE ph.ean = p.ean AND ph.region_id = ${ACTIVE_REGION}
+            AND ph.valid_to IS NULL AND ph.is_available
         ) px ON TRUE
         WHERE (p.brand IS NULL OR p.brand NOT IN ('Genérico', 'Generico'))
           AND px.max_price <= ${f.maxPrice}
@@ -305,7 +309,8 @@ export class ProductsRepository {
         ph.has_promo, ph.promo_description, ph.is_available
       FROM price_history ph
       JOIN retailers r ON r.id = ph.retailer_id
-      WHERE ph.ean = ${ean} ${retailerFilter} ${fromFilter} ${toFilter}
+      WHERE ph.ean = ${ean} AND ph.region_id = ${ACTIVE_REGION}
+        ${retailerFilter} ${fromFilter} ${toFilter}
       ORDER BY r.slug ASC, ph.valid_from DESC
     `;
 
@@ -333,7 +338,7 @@ export class ProductsRepository {
       SELECT rp.retailer_id, r.slug, rp.last_seen_at
       FROM retailer_products rp
       JOIN retailers r ON r.id = rp.retailer_id
-      WHERE rp.ean = ${ean}
+      WHERE rp.ean = ${ean} AND rp.region_id = ${ACTIVE_REGION}
     `;
     return rows.map((r) => ({
       retailerId: r.retailer_id,
@@ -442,7 +447,8 @@ export class ProductsRepository {
     const matchedFilter = f.onlyMatched
       ? sql`AND (
           SELECT COUNT(*) FROM price_history ph
-          WHERE ph.ean = p.ean AND ph.valid_to IS NULL AND ph.is_available
+          WHERE ph.ean = p.ean AND ph.region_id = ${ACTIVE_REGION}
+            AND ph.valid_to IS NULL AND ph.is_available
         ) >= 2`
       : sql``;
     // Cada término debe matchear name o brand (AND entre términos, OR entre columnas).
@@ -478,8 +484,9 @@ export class ProductsRepository {
       ) ORDER BY r.slug)
       FROM price_history ph
       JOIN retailers r ON r.id = ph.retailer_id
-      LEFT JOIN retailer_products rp ON rp.ean = ph.ean AND rp.retailer_id = ph.retailer_id
-      WHERE ph.ean = p.ean AND ph.valid_to IS NULL
+      LEFT JOIN retailer_products rp
+        ON rp.ean = ph.ean AND rp.retailer_id = ph.retailer_id AND rp.region_id = ph.region_id
+      WHERE ph.ean = p.ean AND ph.region_id = ${ACTIVE_REGION} AND ph.valid_to IS NULL
     ), '[]'::jsonb)`;
   }
 }

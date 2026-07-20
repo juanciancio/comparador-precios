@@ -4,6 +4,7 @@ import { groupKeyFor } from '../../../lib/brand/groups.ts';
 import { InjectPg } from '../../common/database/database.tokens.ts';
 import { BrandCatalogService } from '../../common/brand/brand-catalog.service.ts';
 import type { Brand } from './dto/brands.dto.ts';
+import { ACTIVE_REGION } from '../../config/region.ts';
 
 export interface BrandFilters {
   limit: number;
@@ -35,8 +36,10 @@ export class BrandsRepository {
         JOIN price_history c
           ON c.ean = m.ean
           AND c.retailer_id = (SELECT id FROM retailers WHERE slug = 'carrefour')
+          AND c.region_id = ${ACTIVE_REGION}
           AND c.valid_to IS NULL AND c.is_available
         WHERE m.retailer_id = (SELECT id FROM retailers WHERE slug = 'masonline')
+          AND m.region_id = ${ACTIVE_REGION}
           AND m.valid_to IS NULL AND m.is_available
       )
       SELECT
