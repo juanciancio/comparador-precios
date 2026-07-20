@@ -7,6 +7,7 @@ import { InjectPg } from '../../common/database/database.tokens.ts';
 import { BrandCatalogService } from '../../common/brand/brand-catalog.service.ts';
 import type { Product, PriceHistoryEntry, RetailerOffer } from './dto/products.dto.ts';
 import { ACTIVE_REGION } from '../../config/region.ts';
+import { hasActiveOffer } from '../../common/database/active-offer.ts';
 
 export interface RetailerInfo {
   id: number;
@@ -458,7 +459,13 @@ export class ProductsRepository {
       sql``,
     );
 
-    return sql`${categoryTopFilter} ${categoryFilter} ${matchedFilter} ${searchFilter}`;
+    // Excluye huérfanos (productos sin oferta vigente en la región). Va acá y no
+    // en cada caller porque scopeSql es el scope compartido de /products, /search
+    // y /search/facets: los tres tienen que ver el mismo universo o los facets
+    // contarían marcas que la grilla no muestra. Ver common/database/active-offer.ts.
+    const activeOfferFilter = sql`AND ${hasActiveOffer(sql)}`;
+
+    return sql`${categoryTopFilter} ${categoryFilter} ${matchedFilter} ${searchFilter} ${activeOfferFilter}`;
   }
 
   /**

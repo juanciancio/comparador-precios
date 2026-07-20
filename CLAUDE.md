@@ -50,6 +50,8 @@ Estos puntos ya se verificaron manualmente contra los sitios reales. Son la base
 
 16. **Un producto no vendido en la región se devuelve igual, marcado no disponible — nunca desaparece del listado.** Pero las cadenas difieren en qué precio dejan: **Masonline pone `Price: 0`**, **Carrefour conserva el precio** (`IsAvailable: false`, `AvailableQuantity: 0`, `Price > 0`). La regla de load "primer avistaje con `IsAvailable:false` o `Price<=0` → skip completo" cubre ambos casos, así que **hoy esos productos simplemente no entran a la DB**. Consecuencia conocida y aceptada: el backend **no distingue** "no se vende en tu zona" de "no está en el catálogo de esa cadena". Habilitar esa distinción requiere permitir `price NULL` en `price_history`, lo que rompe el invariante duro de "toda fila refleja un precio real observado" — se decidió postergarlo a una fase propia (Juan, 20/07/2026).
 
+17. **La data regionalizada es MÁS pareja entre cadenas que la fantasma.** Post-regionalización los empates cross-retailer (|diff| ≤ 1%) subieron de **36,4% a 40,5%**, y las diferencias grandes se achicaron (25-50% bajó de 23,0% a 12,0%). La lectura: parte de las diferencias que veíamos antes eran **artefactos de comparar dos fantasmas distintos** — el default de Masonline es CABA y el de Carrefour no es ninguna región real, así que el "diff" mezclaba diferencia de precio con diferencia de región. Corolario para el producto: la propuesta de valor de Chango depende de la regionalización más de lo que parecía, porque sin ella una fracción del ranking de ofertas era ruido geográfico, no señal.
+
 ---
 
 ## Regionalización
@@ -120,6 +122,32 @@ item de `/products` y `/search`.
 
 `/health`, `/categories`, `/brands` y `/search/facets` no llevan `region` — su
 contenido no es regional, y decir lo contrario sería afirmar algo falso.
+
+### Productos huérfanos (política)
+
+Un **huérfano** es un producto que existe en `products` pero no tiene ninguna
+oferta vigente en la región (`price_history` con `valid_to IS NULL`). El truncate
+de la regionalización dejó 11.143 (28% de la tabla): EANs del catálogo fantasma
+que no reaparecieron scrapeando Olavarría.
+
+**No se borran.** Un huérfano puede ser un producto que no se vende en la región,
+uno que una corrida salteó (transitorio), o uno descontinuado. En los dos primeros
+casos vuelve, y `first_seen_at` / `image_url` no son recuperables. Ya se tiró
+histórico una vez; no se tira más si se puede evitar.
+
+**Se filtran en los listados**, con el predicado compartido `hasActiveOffer`
+(`src/api/common/database/active-offer.ts`):
+
+| Endpoint | Comportamiento |
+| --- | --- |
+| `GET /products`, `GET /search`, `GET /search/facets` | Filtran (vía `scopeSql`, que es el scope común de los tres — si divergieran, los facets contarían marcas que la grilla no muestra). |
+| `GET /brands`, `GET /categories` | Filtran, o el sidebar muestra marcas y categorías muertas. |
+| `GET /products/:ean` | **NO filtra.** Un link directo o un EAN copiado tiene que resolver, devolviendo `retailers: []`. El frontend tiene el estado "sin oferta activa". Convertirlo en 404 sería peor información que "no lo tenemos cotizado". |
+| `GET /compare`, `GET /products/recent-changes` | Ya filtran solos: parten de un JOIN contra ofertas vigentes. |
+
+El predicado **no exige `is_available`**: un producto no disponible arrastra el
+último precio conocido, así que sigue siendo cotizable y tiene que aparecer,
+marcado como no disponible.
 
 ---
 

@@ -30,6 +30,13 @@
 
   Ver "Regionalización" en `CLAUDE.md` y `docs/REGIONALIZACION.md` en chango-web.
 
+  **Hallazgo de producto**: los empates cross-retailer subieron de 36,4% a 40,5%
+  y las diferencias de 25-50% bajaron de 23,0% a 12,0%. La data regional real es
+  más pareja que la fantasma — parte de las diferencias que mostrábamos eran
+  artefactos de comparar el default de Masonline (CABA) contra el de Carrefour
+  (ninguna región). O sea: una fracción del ranking de ofertas era ruido
+  geográfico, no señal. Refuerza cuánto de la propuesta de valor depende de esto.
+
   **Pendiente del lado del frontend (fase B4-region, no se tocó acá):** correr
   `pnpm api:sync`, adaptar el consumo de `GET /products/:ean`, y mostrar de qué
   región son los precios. Durante los primeros días toda ficha va a caer en
@@ -332,19 +339,16 @@ Fase 3.A (Fases A→E) está **completa**. Lo que sigue:
   el costo: cada región es un catálogo entero (~1.500 requests por corrida por cadena),
   el costo es lineal y no hay zonas agrupables (16 ciudades medidas → 14 regionId
   distintos).
-- **11.143 productos huérfanos en `products` (28% de la tabla).** La migración
-  truncó `price_history` y `retailer_products` pero NO `products` (es metadata a
-  nivel EAN, no regional). Consecuencia no anticipada: quedaron 11.143 filas de
-  productos que ya no tienen ninguna oferta vigente — no se venden en Olavarría, o
-  están no disponibles en las dos cadenas. `GET /products` los devuelve con
-  `retailers: []`, o sea productos sin precio en un comparador de precios.
-
-  No es un bug nuevo del endpoint (un producto reapeado siempre pudo quedar sin
-  ofertas), pero la migración lo pasó de marginal a 1 de cada 4. **Decisión
-  pendiente de Juan**: (a) borrarlos en una migración de limpieza —se recrean solos
-  si el producto reaparece, se pierde solo `first_seen_at` de productos que no
-  podemos cotizar—, (b) filtrar `/products` para exigir ≥1 oferta vigente —cambia
-  los `total` que ve el frontend—, o (c) dejarlo y que el frontend los esconda.
+- **✅ RESUELTO — 11.143 productos huérfanos.** Productos en `products` sin
+  ninguna oferta vigente, que dejó el truncate. **Decisión de Juan (20/07/2026):
+  no borrarlos, filtrarlos en los listados.** Pueden volver a aparecer (no se
+  venden en Olavarría o una corrida los salteó) y `first_seen_at` / `image_url`
+  no son recuperables. Implementado con el predicado compartido `hasActiveOffer`
+  en `/products`, `/search`, `/search/facets`, `/brands` y `/categories`;
+  `GET /products/:ean` los sigue devolviendo con `retailers: []` para que un link
+  directo resuelva. Ver "Productos huérfanos (política)" en `CLAUDE.md`.
+  Costo medido: +29ms en la query de listado (semi-join con index-only scan sobre
+  `idx_ph_current`). `/products` pasó de 39.309 a 28.166 productos.
 
 - **El guard usa un EAN sentinel hardcodeado** (`7790070012050`, Aceite Cocinero
   900ml) por retailer. Si ese producto sale del catálogo, el guard falla con

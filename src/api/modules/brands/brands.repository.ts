@@ -5,6 +5,7 @@ import { InjectPg } from '../../common/database/database.tokens.ts';
 import { BrandCatalogService } from '../../common/brand/brand-catalog.service.ts';
 import type { Brand } from './dto/brands.dto.ts';
 import { ACTIVE_REGION } from '../../config/region.ts';
+import { hasActiveOffer } from '../../common/database/active-offer.ts';
 
 export interface BrandFilters {
   limit: number;
@@ -51,7 +52,7 @@ export class BrandsRepository {
         )::int AS matched_count
       FROM products p
       LEFT JOIN matched_eans me ON me.ean = p.ean
-      WHERE p.brand IS NOT NULL
+      WHERE p.brand IS NOT NULL AND ${hasActiveOffer(this.sql)}
       GROUP BY p.brand
     `;
 
