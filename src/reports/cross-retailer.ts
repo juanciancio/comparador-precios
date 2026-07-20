@@ -1,6 +1,7 @@
 import '../lib/env.ts';
 import { db } from '../lib/db.ts';
 import { diffBucketIndex, DIFF_BUCKET_COUNT, DIFF_TIE_TOLERANCE_PCT } from '../lib/diff-buckets.ts';
+import { DEFAULT_REGION } from '../config/regions.ts';
 
 /**
  * Reporte cruzado por EAN entre Masonline y Carrefour. Es la métrica que valida
@@ -8,6 +9,10 @@ import { diffBucketIndex, DIFF_BUCKET_COUNT, DIFF_TIE_TOLERANCE_PCT } from '../l
  * universal). Precio actual = fila de vigencia con `valid_to IS NULL` y
  * disponible. Los EANs ya están normalizados (ver descubrimiento 9 en CLAUDE.md),
  * así que el JOIN por string es exacto — sin falsos negativos por padding.
+ *
+ * Scopeado a `DEFAULT_REGION`: comparar el precio de Masonline en una región
+ * contra el de Carrefour en otra no significa nada — nadie puede comprar en las
+ * dos a la vez. Ver "Regionalización" en CLAUDE.md.
  *
  * Salida en texto plano (para pipe a archivo o pegar en el reporte final).
  */
@@ -50,11 +55,13 @@ export async function crossRetailerReport(): Promise<string> {
     JOIN price_history m
       ON m.ean = p.ean
       AND m.retailer_id = (SELECT id FROM retailers WHERE slug = 'masonline')
+      AND m.region_id = ${DEFAULT_REGION}
       AND m.valid_to IS NULL
       AND m.is_available
     JOIN price_history c
       ON c.ean = p.ean
       AND c.retailer_id = (SELECT id FROM retailers WHERE slug = 'carrefour')
+      AND c.region_id = ${DEFAULT_REGION}
       AND c.valid_to IS NULL
       AND c.is_available
     WHERE m.price > 0
@@ -71,11 +78,13 @@ export async function crossRetailerReport(): Promise<string> {
     WITH m AS (
       SELECT ean FROM price_history
       WHERE retailer_id = (SELECT id FROM retailers WHERE slug = 'masonline')
+        AND region_id = ${DEFAULT_REGION}
         AND valid_to IS NULL AND is_available
     ),
     c AS (
       SELECT ean FROM price_history
       WHERE retailer_id = (SELECT id FROM retailers WHERE slug = 'carrefour')
+        AND region_id = ${DEFAULT_REGION}
         AND valid_to IS NULL AND is_available
     )
     SELECT
