@@ -49,6 +49,7 @@ Detalle completo, schemas y ejemplos en **`/docs`**. Resumen:
 | `GET` | `/products` | Listado paginado del catálogo unificado con precios por cadena. Filtros: `brand`, `category`, `only_matched`, `sort_by`, `sort_dir`. |
 | `GET` | `/products/recent-changes` | Productos con cambios de precio en las últimas N horas, para la home de la PWA. Mismo shape que `/products`. Filtros: `limit` (max 30), `hours` (max 168), `min_diff_pct`. Cacheado 5 min. |
 | `GET` | `/products/:ean` | Detalle de un producto (el EAN se normaliza: strip de ceros a la izquierda). |
+| `GET` | `/products/:ean/similar` | Hasta `limit` productos de la misma sub-categoría (hoja de `category_path`), para el pie de la ficha. Mismo shape que `/products`; `pagination.total` = devueltos. Filtro: `limit` (default 3, max 20). |
 | `GET` | `/products/:ean/price-history` | Histórico de vigencias (SCD-2). Filtros: `retailer`, `from`, `to`. |
 | `POST` | `/products/:ean/refresh` | Refresh on-demand contra los retailers (TTL comunitario, ver nota abajo). |
 | `GET` | `/search` | Búsqueda por nombre/marca (multi-término, ILIKE). Requiere `q` (≥2 chars). |

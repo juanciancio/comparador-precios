@@ -17,7 +17,9 @@ import type {
   ListProductsQueryDto,
   PriceHistoryQueryDto,
   RecentChangesQueryDto,
+  SimilarProductsQueryDto,
 } from './dto/products.dto.ts';
+import { categoryLeaf } from '../../../lib/category-path.ts';
 import { ACTIVE_REGION } from '../../config/region.ts';
 import { DEFAULT_REGION, regionIdFor } from '../../../config/regions.ts';
 
@@ -83,6 +85,44 @@ export class ProductsService {
     const product = await this.repo.getProduct(ean);
     if (!product) throw new NotFoundException(`No existe producto con EAN ${ean}`);
     return { region: ACTIVE_REGION, product };
+  }
+
+  /**
+   * Productos de la misma sub-categoría, para el pie de la ficha de producto.
+   *
+   * Devuelve el envelope de `/products` con `products: []` (200, no 404) cuando
+   * el producto no tiene sub-categoría: que la ficha no tenga similares es un
+   * estado normal del frontend, no un error. Sólo el EAN inexistente es 404.
+   *
+   * El filtro por cadena replica la góndola: si el producto original se vende en
+   * una sola, los similares que se ofrecen tienen que comprarse en ese mismo
+   * lugar. Con 0 cadenas (huérfano regional) o ≥2 no hay a qué acotar y se
+   * muestra todo lo comparable de la sub-categoría.
+   */
+  async similar(rawEan: string, query: SimilarProductsQueryDto): Promise<ListProductsResult> {
+    const ean = this.normalize(rawEan);
+    const product = await this.repo.getProduct(ean);
+    if (!product) throw new NotFoundException(`No existe producto con EAN ${ean}`);
+
+    const leaf = categoryLeaf(product.categoryPath);
+    const retailerSlugs = new Set(product.retailers.map((r) => r.retailer));
+
+    const data =
+      leaf === null
+        ? []
+        : await this.repo.similarProducts({
+            leaf,
+            excludeEan: ean,
+            retailerSlug: retailerSlugs.size === 1 ? [...retailerSlugs][0] : undefined,
+            limit: query.limit,
+          });
+
+    // total = devueltos: no hay paginación, así que no hay total teórico que ofrecer.
+    return {
+      region: ACTIVE_REGION,
+      data,
+      pagination: { limit: query.limit, offset: 0, total: data.length },
+    };
   }
 
   async priceHistory(rawEan: string, query: PriceHistoryQueryDto): Promise<{

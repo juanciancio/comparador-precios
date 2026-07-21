@@ -648,6 +648,59 @@ filas caen dentro. El filtro efectivo viene de exigir una fila previa con precio
 distinto. Cuando el proyecto acumule más historia, la ventana comenzará a filtrar
 activamente.
 
+### Reglas de productos similares
+
+`GET /products/:ean/similar` alimenta la sección "productos similares" del pie de
+la ficha de producto (Fase B4.3). Devuelve el **mismo envelope que
+`GET /products`** para que el frontend reuse el cliente tipado; `pagination.offset`
+es siempre 0 y **`pagination.total` es la cantidad devuelta**, no el total de
+similares que existen — no hay paginación, así que no hay página siguiente que
+ofrecer y contar el universo costaría una query extra para un número que nadie usa.
+
+Un producto B es similar a A si cumple **todas**:
+
+1. **Misma hoja de `category_path`** (último segmento).
+2. `B.ean ≠ A.ean`.
+3. B tiene ≥1 oferta vigente en la región (mismo predicado `hasActiveOffer` que
+   los listados: nada de huérfanos regionales en una sección de recomendaciones).
+4. **Si A tiene oferta vigente en una sola cadena, B también tiene que tenerla en
+   esa cadena.** Con 0 (A es huérfano) o ≥2 cadenas, este filtro no aplica. La
+   sección sugiere alternativas comprables en el mismo lugar; ofrecerle a alguien
+   que mira un producto de Masonline un similar que solo está en Carrefour es
+   mandarlo a otra góndola.
+
+Orden: `MIN(list_price)` entre las ofertas vigentes de B, ASC, desempate por `ean`.
+El desempate no es cosmético: sin él la elección entre precios iguales queda a
+merced del plan y los similares bailan entre requests.
+
+**El match es por hoja pelada, no por path completo.** `category_path` es volátil
+(lo pisa el último retailer que procesó el producto, ver "Nota sobre volatilidad
+de category_path") y las dos cadenas cuelgan la misma sub-categoría de
+departamentos distintos: `Fernet` vive bajo `/Bebidas/` en una y bajo
+`/Fernet Y Aperitivos/` en la otra. Matchear el path completo partiría en dos lo
+que el usuario ve como una sola góndola. 74 hojas aparecen en más de un path;
+ninguna con significados distintos. Corolario aceptado: **los similares pueden
+variar entre corridas del scraper**, porque la hoja de un producto compartido
+depende de qué cadena scrapeó última. No es fatal para una sección de
+descubrimiento.
+
+**Un path de un solo nivel no tiene hoja** y devuelve `data: []` con **200**, no
+404 ni 500: `/Huevos/` es un departamento, no una sub-categoría, y devolver todo
+el departamento no es la relación que se quiere. Son 15 productos del catálogo, de
+la taxonomía plana de una de las cadenas. `category_path` NULL o vacío no existe
+hoy (0 filas), pero el helper `categoryLeaf` lo cubre igual. Sólo un EAN
+inexistente da 404.
+
+**La marca "Genérico" no se excluye acá.** La regla de CLAUDE.md aplica a
+comparaciones de precio cross-retailer (`/compare`, `recent-changes`); dos
+productos Genérico de la misma sub-categoría son perfectamente sustituibles.
+
+**Costo:** ~65ms la query (~118ms el request completo, que hace además el fetch del
+producto original). El pre-filtro `LIKE '%/Hoja/'` sobre el `regexp_replace` es lo
+que la baja de ~135ms: es redundante en semántica pero evita correr el regexp
+sobre las 39k filas de `products`. Sin índice ni columna precomputada; si el
+catálogo crece mucho, la salida es un índice de expresión sobre la hoja.
+
 ### Anti-patterns de la API (además de los generales)
 
 1. **No inventar endpoints fuera de la lista de la fase.** Si aparece "sería útil también...", se para y se consulta. Superficie mínima que responde al MVP.
@@ -673,8 +726,11 @@ así que se mantuvo la arquitectura de Fase A). Falta elegir target de deploy
 (decisión abierta #7) y consumir desde la PWA (Fase 3.B).
 
 `GET /products/recent-changes` (14/07/2026) se agregó después del cierre de 3.A,
-pedido por la home de la PWA. Es el único endpoint con reglas de negocio propias
-más allá de filtrar el catálogo — ver "Reglas de recent-changes" abajo.
+pedido por la home de la PWA. Ver "Reglas de recent-changes" abajo.
+
+`GET /products/:ean/similar` (21/07/2026, Fase B4.3) se agregó para la sección de
+productos similares del pie de la ficha. El frontend lo consume en una fase
+aparte. Ver "Reglas de productos similares" abajo.
 
 ---
 

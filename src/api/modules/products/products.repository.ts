@@ -3,6 +3,7 @@ import type { Db } from '../../../lib/db.ts';
 import { normalizeBrandKey } from '../../../lib/brand/normalize.ts';
 import { buildBrandGroups } from '../../../lib/brand/groups.ts';
 import { MI_CRF_HIGHLIGHT_PATTERN, isMiCrfDiscount } from '../../../lib/mi-crf.ts';
+import { escapeLike } from '../../../lib/category-path.ts';
 import { InjectPg } from '../../common/database/database.tokens.ts';
 import { BrandCatalogService } from '../../common/brand/brand-catalog.service.ts';
 import type { Product, PriceHistoryEntry, RetailerOffer } from './dto/products.dto.ts';
@@ -65,6 +66,19 @@ export interface RecentChangesFilters {
   maxPrice: number;
   /** Techo de |diff_pct| cross-retailer. Env RECENT_CHANGES_MAX_DIFF_PCT. */
   maxDiffPct: number;
+}
+
+export interface SimilarFilters {
+  /** Hoja de category_path a matchear (último segmento). Ver lib/category-path.ts. */
+  leaf: string;
+  /** EAN del producto original, que se excluye del resultado. */
+  excludeEan: string;
+  /**
+   * Slug al que acotar los similares. Se setea sólo cuando el producto original
+   * tiene oferta vigente en UNA sola cadena; con 0 o ≥2 va undefined.
+   */
+  retailerSlug?: string | undefined;
+  limit: number;
 }
 
 export interface PriceHistoryFilters {
@@ -269,6 +283,61 @@ export class ProductsRepository {
     // COUNT(*) OVER () se evalúa antes del LIMIT: total = filas que pasaron todos
     // los filtros. Sin filas no hay total que leer, y 0 es la respuesta correcta.
     return { data: rows.map(toProduct), total: rows[0]?.total ?? 0 };
+  }
+
+  /**
+   * Productos de la misma hoja de `category_path`, ordenados por precio de lista.
+   *
+   * El match es por HOJA PELADA, no por path completo: `category_path` es
+   * volátil (lo pisa el último retailer que procesó el producto, ver CLAUDE.md →
+   * "Nota sobre volatilidad de category_path"), y las dos cadenas cuelgan la
+   * misma sub-categoría de departamentos distintos — `Fernet` vive bajo
+   * `/Bebidas/` en una y bajo `/Fernet Y Aperitivos/` en la otra. Matchear el
+   * path completo partiría en dos grupos lo que el usuario ve como una sola
+   * góndola. 74 hojas aparecen en más de un path; ninguna con significados
+   * distintos.
+   *
+   * El `LIKE` es redundante con el `regexp_replace` (todos los paths terminan en
+   * `/`) pero está a propósito: sin él Postgres corre el regexp sobre las 39k
+   * filas de `products` y la query pasa de ~65ms a ~135ms. El regexp queda como
+   * red de seguridad si algún día entra un path sin `/` final.
+   *
+   * `hasActiveOffer` es lo que excluye huérfanos; el LATERAL no alcanza porque
+   * `MIN()` sobre cero filas devuelve una fila con NULL, no cero filas.
+   */
+  async similarProducts(f: SimilarFilters): Promise<Product[]> {
+    const sql = this.sql;
+    const retailerFilter = f.retailerSlug
+      ? sql`AND EXISTS (
+          SELECT 1 FROM price_history ph
+          JOIN retailers r ON r.id = ph.retailer_id
+          WHERE ph.ean = p.ean AND ph.region_id = ${ACTIVE_REGION}
+            AND ph.valid_to IS NULL AND r.slug = ${f.retailerSlug}
+        )`
+      : sql``;
+
+    const rows = await sql<RawProductRow[]>`
+      SELECT
+        p.ean, p.name_canonical, p.brand, p.category_path, p.image_url,
+        p.first_seen_at, p.last_seen_at,
+        ${this.retailerOffersSubquery()} AS retailers
+      FROM products p
+      JOIN LATERAL (
+        SELECT MIN(ph.list_price) AS sort_price
+        FROM price_history ph
+        WHERE ph.ean = p.ean AND ph.region_id = ${ACTIVE_REGION} AND ph.valid_to IS NULL
+      ) px ON TRUE
+      WHERE p.category_path LIKE ${'%/' + escapeLike(f.leaf) + '/'}
+        AND regexp_replace(trim(both '/' from p.category_path), '.*/', '') = ${f.leaf}
+        AND p.ean <> ${f.excludeEan}
+        AND ${hasActiveOffer(sql)}
+        ${retailerFilter}
+      ORDER BY px.sort_price ASC NULLS LAST, p.ean ASC
+      LIMIT ${f.limit}
+    `;
+
+    const canon = await this.brandCatalog.resolver();
+    return rows.map((r) => this.withCanonicalBrand(toProduct(r), canon));
   }
 
   async getProduct(ean: string): Promise<Product | null> {

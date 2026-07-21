@@ -88,6 +88,17 @@ export const RecentChangesQuerySchema = z.object({
 });
 export class RecentChangesQueryDto extends createZodDto(RecentChangesQuerySchema) {}
 
+export const SimilarProductsQuerySchema = z.object({
+  limit: z.coerce
+    .number()
+    .int()
+    .min(1)
+    .max(20)
+    .default(3)
+    .describe('Cantidad máxima de similares (1–20). Ej: 3'),
+});
+export class SimilarProductsQueryDto extends createZodDto(SimilarProductsQuerySchema) {}
+
 export const PriceHistoryQuerySchema = z.object({
   retailer: z
     .string()
@@ -160,6 +171,17 @@ export const ListProductsResponseSchema = z.object({
   }),
 });
 export class ListProductsResponseDto extends createZodDto(ListProductsResponseSchema) {}
+
+/**
+ * Mismo shape que `ListProductsResponseSchema` — el frontend reusa el cliente
+ * tipado de `/products` sin mapeo — pero `pagination` significa otra cosa y por
+ * eso vive como schema propio en vez de reusar el alias: los similares NO se
+ * paginan. `offset` es siempre 0 y **`total` es la cantidad devuelta**, no el
+ * total teórico de similares en la sub-categoría (contarlos costaría una segunda
+ * query para un número que nadie usa: no hay "página siguiente" que ofrecer).
+ */
+export const SimilarProductsResponseSchema = ListProductsResponseSchema;
+export class SimilarProductsResponseDto extends createZodDto(SimilarProductsResponseSchema) {}
 
 export const PriceHistoryEntrySchema = z.object({
   retailer: z.string(),

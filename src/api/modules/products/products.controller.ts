@@ -20,6 +20,8 @@ import {
   GetProductResponseDto,
   RecentChangesQueryDto,
   RefreshResponseDto,
+  SimilarProductsQueryDto,
+  SimilarProductsResponseDto,
 } from './dto/products.dto.ts';
 import { ProductsService } from './products.service.ts';
 
@@ -162,6 +164,48 @@ export class ProductsController {
   @ApiServerError()
   getOne(@Param('ean') ean: string): Promise<GetProductResponseDto> {
     return this.products.getOne(ean);
+  }
+
+  @Get(':ean/similar')
+  @ApiOperation({
+    summary: 'Productos similares (misma sub-categoría)',
+    description:
+      'Hasta `limit` productos de la misma **sub-categoría** que el producto ' +
+      'dado, para el pie de la ficha de producto. Un producto es similar si ' +
+      'comparte la hoja de `category_path` (último segmento), tiene otro EAN y ' +
+      'tiene al menos una oferta vigente en la región (no se devuelven huérfanos ' +
+      'regionales). Ordenados por precio de lista ascendente (el menor entre sus ' +
+      'cadenas).\n\n' +
+      'Si el producto original se vende en **una sola** cadena, los similares se ' +
+      'acotan a esa misma cadena: la sección sugiere alternativas comprables en ' +
+      'el mismo lugar. Con ofertas en ambas cadenas —o con ninguna, si es un ' +
+      'huérfano regional— no se filtra por cadena.\n\n' +
+      'Devuelve el MISMO shape que `GET /products`, así que el cliente tipado se ' +
+      'reusa sin mapeo. No hay paginación: `pagination.offset` es siempre 0 y ' +
+      '`pagination.total` es la cantidad devuelta, no el total de similares que ' +
+      'existen en la sub-categoría.\n\n' +
+      'Un producto **sin sub-categoría** (`category_path` de un solo nivel, ej. ' +
+      '`/Huevos/`) devuelve `data: []` con **200**, no 404: que la ficha no tenga ' +
+      'similares es un estado normal. Sólo un EAN inexistente da 404.',
+  })
+  @ApiParam({ name: 'ean', description: 'EAN del producto (se normaliza).', example: EAN_EXAMPLE })
+  @ApiOkResponse({
+    type: SimilarProductsResponseDto,
+    description: 'Similares del producto, o lista vacía si no hay ninguno.',
+    example: {
+      region: 'olavarria',
+      data: [PRODUCT_EXAMPLE],
+      pagination: { limit: 3, offset: 0, total: 1 },
+    },
+  })
+  @ApiBadRequest()
+  @ApiNotFound('No existe producto con ese EAN.')
+  @ApiServerError()
+  similar(
+    @Param('ean') ean: string,
+    @Query() query: SimilarProductsQueryDto,
+  ): Promise<SimilarProductsResponseDto> {
+    return this.products.similar(ean, query);
   }
 
   @Get(':ean/price-history')

@@ -300,6 +300,40 @@ grupos "case" cuando entren cadenas nuevas (Coto, Día, Jumbo).
 
 ---
 
+## Endpoint agregado el 21/07/2026 (Fase B4.3, backend)
+
+### `GET /products/:ean/similar` — productos similares
+
+Alimenta la sección "productos similares" del pie de la ficha de producto. **Sólo
+backend**: el frontend lo consume en una fase aparte.
+
+Similar = misma **hoja** de `category_path` (último segmento) + otro EAN + al menos
+una oferta vigente en la región + (si el original está en una sola cadena) oferta
+en esa misma cadena. Orden por `MIN(list_price)` ASC, desempate por `ean`. Param
+`limit` (default 3, max 20). Envelope de `/products`, con `pagination.total` =
+devueltos. Criterios completos y sus porqués en `CLAUDE.md` → "Reglas de productos
+similares".
+
+**Números del catálogo al implementarlo** (útiles para calibrar la sección en el
+frontend): 1.275 hojas distintas sobre 29.721 productos con oferta vigente; **429
+hojas tienen menos de 5 productos** (936 productos), así que devolver menos de 3
+similares no es un edge case exótico — el frontend tiene que bancar 0, 1 y 2. Sólo
+15 productos del catálogo no tienen hoja (path de un nivel: `/Huevos/`, `/Niños/`,
+…) y devuelven lista vacía con 200. `category_path` NULL o vacío: 0 filas.
+
+**Deuda anotada, no bloqueante:** la volatilidad de `category_path` entre corridas
+(el path lo pisa el último retailer que procesó el producto) hace que **los
+similares de un producto puedan cambiar entre scrapes**. Para una sección de
+descubrimiento es tolerable; si algún día molesta, la salida es precomputar una
+columna `category_leaf` estable, que se descartó a propósito de esta fase por ser
+refactor de esquema.
+
+**Performance:** ~65ms la query, ~118ms el request completo (hace además el fetch
+del producto original). Sin índice ni migración. Si el catálogo crece bastante, la
+salida es un índice de expresión sobre la hoja.
+
+---
+
 ## 4. Próximos pasos en orden
 
 Fase 3.A (Fases A→E) está **completa**. Lo que sigue:
