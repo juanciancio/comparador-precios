@@ -23,16 +23,30 @@ import { fetchProductsByEan, fetchProductsByEanUnregionalized } from '../lib/vte
  * nivel de precios: **con cookie y sin cookie tienen que dar distinto**. Si dan
  * igual, la cookie no está regionalizando. Cuesta un request extra por corrida.
  *
- * Limitación conocida: si algún día el precio regional coincide con el nacional
- * para el EAN sentinel, esto da falso positivo. Por eso el sentinel es
- * configurable por retailer y se elige entre los que difieren de forma estable
- * (medidos 14/14 distintos el 2026-07-20).
+ * ## Por qué se compara el estado completo de la oferta y no solo `Price > 0`
+ *
+ * "Distinto" incluye la disponibilidad, no solo el precio. Masonline pone
+ * `Price: 0, IsAvailable: false` cuando un producto no tiene stock en la región
+ * (descubrimiento 16 de CLAUDE.md): si el sentinel se queda sin stock en
+ * Olavarría, la respuesta regional dice "$0, no disponible" y la nacional
+ * "$4369, disponible" — eso es EVIDENCIA de que la cookie regionaliza, no un
+ * error. Exigir `Price > 0` del lado regional convertía ese caso en un aborto
+ * (pasó el 2026-07-22: el Aceite Cocinero sin stock regional tiró la corrida
+ * entera de ambas cadenas).
+ *
+ * Limitación conocida: si algún día el precio Y la disponibilidad regionales
+ * coinciden con los nacionales para el EAN sentinel, esto da falso positivo.
+ * Por eso el sentinel es configurable por retailer y se elige entre los que
+ * difieren de forma estable (medidos 14/14 distintos el 2026-07-20).
  */
 
 export type RegionGuardError =
   | { kind: 'sentinel_fetch_failed'; phase: 'regional' | 'national'; detail: unknown }
   | { kind: 'sentinel_not_found'; phase: 'regional' | 'national' }
-  | { kind: 'not_regionalized'; price: number };
+  | { kind: 'not_regionalized'; price: number; isAvailable: boolean };
+
+/** Estado observable de la oferta del sentinel: lo que se compara entre fases. */
+type SentinelOffer = { price: number; isAvailable: boolean };
 
 /**
  * EAN testigo por retailer. Criterio de elección: producto de alta rotación
@@ -44,7 +58,13 @@ const SENTINEL_EAN: Readonly<Record<string, string>> = {
   masonline: '7790070012050',
 };
 
-function firstSellerPrice(products: unknown[]): number | null {
+/**
+ * `null` solo cuando el sentinel no aparece con una oferta con shape válido
+ * (EAN fuera del catálogo o respuesta rota). `Price: 0` es un estado observable
+ * legítimo — "sin stock en la región" en Masonline — y se devuelve tal cual
+ * para compararlo contra la otra fase, no se descarta.
+ */
+function firstSellerOffer(products: unknown[]): SentinelOffer | null {
   for (const p of products) {
     if (typeof p !== 'object' || p === null) continue;
     const items = (p as { items?: unknown }).items;
@@ -62,7 +82,8 @@ function firstSellerPrice(products: unknown[]): number | null {
       const offer = (seller as { commertialOffer?: unknown }).commertialOffer;
       if (typeof offer !== 'object' || offer === null) continue;
       const price = (offer as { Price?: unknown }).Price;
-      if (typeof price === 'number' && price > 0) return price;
+      const isAvailable = (offer as { IsAvailable?: unknown }).IsAvailable;
+      if (typeof price === 'number') return { price, isAvailable: isAvailable === true };
     }
   }
   return null;
@@ -90,23 +111,40 @@ export async function assertRegionalPricing(
   if (!regional.ok) {
     return { ok: false, error: { kind: 'sentinel_fetch_failed', phase: 'regional', detail: regional.error } };
   }
-  const regionalPrice = firstSellerPrice(regional.value);
-  if (regionalPrice === null) return { ok: false, error: { kind: 'sentinel_not_found', phase: 'regional' } };
+  const regionalOffer = firstSellerOffer(regional.value);
+  if (regionalOffer === null) return { ok: false, error: { kind: 'sentinel_not_found', phase: 'regional' } };
 
   // Sin cookie: el precio del catálogo sin regionalizar (el "fantasma").
   const national = await fetchProductsByEanUnregionalized(retailer.host, ean);
   if (!national.ok) {
     return { ok: false, error: { kind: 'sentinel_fetch_failed', phase: 'national', detail: national.error } };
   }
-  const nationalPrice = firstSellerPrice(national.value);
-  if (nationalPrice === null) return { ok: false, error: { kind: 'sentinel_not_found', phase: 'national' } };
+  const nationalOffer = firstSellerOffer(national.value);
+  if (nationalOffer === null) return { ok: false, error: { kind: 'sentinel_not_found', phase: 'national' } };
 
-  if (regionalPrice === nationalPrice) {
-    return { ok: false, error: { kind: 'not_regionalized', price: regionalPrice } };
+  if (
+    regionalOffer.price === nationalOffer.price &&
+    regionalOffer.isAvailable === nationalOffer.isAvailable
+  ) {
+    return {
+      ok: false,
+      error: { kind: 'not_regionalized', price: regionalOffer.price, isAvailable: regionalOffer.isAvailable },
+    };
+  }
+
+  if (!regionalOffer.isAvailable) {
+    // Divergencia vía disponibilidad: la cookie regionaliza, pero el sentinel
+    // está sin stock en la región. Vale como verificación; se loguea aparte por
+    // si se repite muchos días seguidos (señal de elegir otro sentinel).
+    log.warn(
+      { step: 'region_guard', ean, regionalOffer, nationalOffer },
+      'sentinel unavailable in region — cookie is regionalizing, but consider a higher-rotation sentinel if this persists',
+    );
+    return { ok: true };
   }
 
   log.info(
-    { step: 'region_guard', ean, regionalPrice, nationalPrice },
+    { step: 'region_guard', ean, regionalPrice: regionalOffer.price, nationalPrice: nationalOffer.price },
     'vtex_segment cookie is regionalizing prices',
   );
   return { ok: true };
