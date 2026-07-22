@@ -1,10 +1,15 @@
-# fly.toml app configuration file generated for comparador-precios on 2026-07-21T17:01:03Z
+# fly.toml — config de deploy de la API en Fly.io.
+# Reproducida de la config viva de la app el 22/07/2026 (flyctl config show),
+# con dos correcciones: primary_region 'gru' (la decisión cerrada #7; el 'iad'
+# que generó el Launch del dashboard era el default, las máquinas ya corren en
+# gru) y el sizing sin la contradicción memory='1gb'/memory_mb=256 que traía
+# el fly.toml generado — las máquinas reales son shared-cpu-1x:256MB.
 #
-# See https://fly.io/docs/reference/configuration/ for information about how to use this file.
-#
+# internal_port 8080: el secret API_PORT de Fly overridea el default 3100 del
+# Dockerfile. Si se cambia uno hay que cambiar el otro.
 
 app = 'comparador-precios'
-primary_region = 'iad'
+primary_region = 'gru'
 
 [build]
 
@@ -17,7 +22,6 @@ primary_region = 'iad'
   processes = ['app']
 
 [[vm]]
-  memory = '1gb'
+  memory = '256mb'
   cpu_kind = 'shared'
   cpus = 1
-  memory_mb = 256
