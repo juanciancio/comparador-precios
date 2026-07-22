@@ -45,10 +45,24 @@ export function isProduction(env: ApiEnv = apiEnv): boolean {
   return env.NODE_ENV === 'production';
 }
 
+// Default de CORS en producción cuando CORS_ORIGINS no se configuró (queda en
+// '*'): prod es restrictivo por default en vez de depender de un secret en Fly.
+// La env var sigue funcionando como override explícito.
+// www.changui.ar importa aunque Vercel lo redirija: el request inicial sale
+// desde ese origin antes del redirect, y sin él el browser bloquea la primera
+// visita desde www.
+// Si se activan Vercel Preview Deployments, agregar función matcher para
+// https://chango-pwa-*.vercel.app además de los origins fijos.
+const ALLOWED_ORIGINS = [
+  'https://changui.ar',
+  'https://www.changui.ar',
+  'https://chango-pwa.vercel.app',
+];
+
 /** CORS origin for `enableCors`: `true` (reflect any) in dev, explicit list in prod. */
 export function corsOrigin(env: ApiEnv = apiEnv): true | string[] {
   const raw = env.CORS_ORIGINS.trim();
-  if (raw === '*') return true;
+  if (raw === '*') return isProduction(env) ? ALLOWED_ORIGINS : true;
   return raw
     .split(',')
     .map((o) => o.trim())

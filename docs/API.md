@@ -114,7 +114,7 @@ una segunda cargada. Ver "Regionalización" en `CLAUDE.md`.
 | `DATABASE_URL` | Connection string de Postgres/Supabase. En Supabase usar el **Session pooler** (IPv4, puerto 5432); la conexión directa es IPv6-only. | — | **Sí** |
 | `API_PORT` | Puerto HTTP de la API. | `3100` | No |
 | `NODE_ENV` | `production` activa whitelist de CORS y desactiva pretty logs. | `development` | No |
-| `CORS_ORIGINS` | `*` (refleja cualquier origen, dev) o lista separada por comas (prod). | `*` | No |
+| `CORS_ORIGINS` | Lista separada por comas, o `*`: refleja cualquier origen en dev; en prod (`NODE_ENV=production`) cae al default hardcodeado `changui.ar` + `www.changui.ar` + `chango-pwa.vercel.app`. | `*` | No |
 | `LOG_LEVEL` | Nivel de pino (`info`, `debug`, ...). | `info` | No |
 | `RATE_LIMIT_TTL` | Ventana del throttler, en segundos. | `60` | No |
 | `RATE_LIMIT_LIMIT` | Máximo de requests por ventana por IP. | `100` | No |

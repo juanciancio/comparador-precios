@@ -42,7 +42,8 @@ export async function createApp(): Promise<INestApplication> {
   const app = await NestFactory.create(AppModule, { bufferLogs: true });
   app.useLogger(app.get(Logger));
   // POST habilitado por el refresh on-demand (POST /products/:ean/refresh).
-  app.enableCors({ origin: corsOrigin(), methods: ['GET', 'POST', 'OPTIONS'] });
+  // credentials: true anticipa cookies/auth de Fase 4; hoy no hay credenciales.
+  app.enableCors({ origin: corsOrigin(), methods: ['GET', 'POST', 'OPTIONS'], credentials: true });
   // Filtro de errores + timing, globales. Comparten el logger pino de la API.
   const apiLog = logger.child({ service: 'api' });
   app.useGlobalFilters(new HttpExceptionFilter(apiLog));
