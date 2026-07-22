@@ -10,12 +10,18 @@ concurrency:
   group: fly-deploy
   cancel-in-progress: false
 
+# El job solo lee el repo y deployea con FLY_API_TOKEN; el GITHUB_TOKEN no
+# necesita ningún write.
+permissions:
+  contents: read
+
 jobs:
   deploy:
     name: Deploy app
     runs-on: ubuntu-latest
     steps:
-      - uses: actions/checkout@v4
+      # Pinneado a SHA (tag v4), mismo criterio que setup-flyctl.
+      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262
       # Pinneado a SHA (tag 1.6): ref mutable + secret FLY_API_TOKEN = riesgo supply chain.
       - uses: superfly/flyctl-actions/setup-flyctl@ed8efb33836e8b2096c7fd3ba1c8afe303ebbff1
       - run: flyctl deploy --remote-only
