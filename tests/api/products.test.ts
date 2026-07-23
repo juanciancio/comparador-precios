@@ -339,6 +339,43 @@ describe('GET /products/bulk', () => {
     expect(res.body.pagination.total).toBe(0);
     expect(res.body.pagination.limit).toBe(0);
   });
+
+  // Algunas categorías user-facing del frontend agrupan varios paths internos por
+  // inconsistencias de retailer (ej: "Juguetería" vs "Jugueteria"). bulk acepta el
+  // mismo `category_top` repetible que /products para traerlas en un solo request.
+  describe('multi category_top (repetible, OR entre valores)', () => {
+    const A = 'Limpieza';
+    const B = 'Accesorios De Limpieza';
+
+    it('devuelve la unión de ambos departamentos, sin EANs duplicados', async () => {
+      const res = await request(http())
+        .get('/products/bulk')
+        .query({ category_top: [A, B] });
+      expect(res.status).toBe(200);
+
+      const tops = new Set(res.body.data.map((p: { categoryPath: string }) => p.categoryPath.split('/')[1]));
+      expect(tops).toEqual(new Set([A, B]));
+
+      const eans = res.body.data.map((p: { ean: string }) => p.ean);
+      expect(new Set(eans).size).toBe(eans.length);
+    });
+
+    it('los totales cuadran: bulk multi-path == suma de los single-path (universo disjunto)', async () => {
+      const [multi, single1, single2] = await Promise.all([
+        request(http()).get('/products/bulk').query({ category_top: [A, B] }),
+        request(http()).get('/products/bulk').query({ category_top: A }),
+        request(http()).get('/products/bulk').query({ category_top: B }),
+      ]);
+      expect(multi.status).toBe(200);
+      expect(single1.status).toBe(200);
+      expect(single2.status).toBe(200);
+      // Cada EAN pertenece a un único top-level (un category_path), así que los
+      // universos son disjuntos y la unión es exactamente la suma.
+      expect(multi.body.pagination.total).toBe(
+        single1.body.pagination.total + single2.body.pagination.total,
+      );
+    });
+  });
 });
 
 describe('GET /products/:ean', () => {

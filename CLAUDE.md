@@ -657,9 +657,14 @@ Envelope igual a `GET /products` para compatibilidad de parser del frontend, que
 lo usa para carga en 2 etapas de la vista de categoría (el segundo request
 reemplaza el loop de ~42 paginados que traía Hogar en ~6s).
 
-- **`category_top` es requerido y único** (no repetible, a diferencia de
-  `/products`): el endpoint existe para cargar una categoría de un tirón, no para
-  combinar filtros. Vacío o ausente → 400 vía el pipe global de Zod.
+- **`category_top` es requerido, y acepta uno o múltiples valores** (repetible en
+  el query string, OR entre sí — mismo formato y schema que `GET /products`).
+  Necesario porque algunas categorías user-facing del frontend agrupan varios paths
+  internos por inconsistencias de retailer (ej: "Juguetería" vs "Jugueteria"), y
+  hay que traerlas todas en un solo bulk request. A diferencia de `/products` acá
+  NO es opcional. Ausente o array vacío → 400 vía el pipe global de Zod. La unión
+  es disjunta (cada EAN pertenece a un solo top-level vía su `category_path`), así
+  que el total multi-path es la suma de los single-path, sin dedup necesario.
 - **No hay paginación real:** `pagination.limit == pagination.total == data.length`
   y `pagination.offset == 0`. Los campos se mantienen sólo para no romper el
   parser tipado del frontend.

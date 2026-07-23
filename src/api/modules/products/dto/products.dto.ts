@@ -89,20 +89,24 @@ export const RecentChangesQuerySchema = z.object({
 export class RecentChangesQueryDto extends createZodDto(RecentChangesQuerySchema) {}
 
 /**
- * `GET /products/bulk` trae TODA la categoría de una, sin paginar. A diferencia
- * de `category_top` en `/products` (repetible, opcional), acá es un único
- * departamento y es requerido: el endpoint existe para cargar una vista de
- * categoría de un tirón, no para combinar filtros. Un valor vacío o ausente da
- * 400 vía el pipe global de Zod.
+ * `GET /products/bulk` trae TODA la categoría de una, sin paginar. Acepta el
+ * mismo formato de `category_top` que `/products` (uno o varios valores,
+ * repetibles en el query string, OR entre sí) — necesario porque algunas
+ * categorías user-facing del frontend agrupan varios paths internos por
+ * inconsistencias de retailer (ej: "Juguetería" vs "Jugueteria"). A diferencia de
+ * `/products` acá NO es opcional: es requerido (el endpoint existe para cargar una
+ * vista de categoría de un tirón). Ausente o array vacío da 400 vía el pipe global
+ * de Zod.
  */
 export const BulkQuerySchema = z.object({
   category_top: z
-    .string()
-    .min(1)
+    .union([z.string().min(1), z.array(z.string().min(1)).nonempty()])
+    .transform((v) => (Array.isArray(v) ? v : [v]))
     .describe(
       'Departamento top-level exacto (primer segmento de category_path). ' +
-        'Requerido. Case-sensitive — es la etiqueta cruda del retailer, ver ' +
-        'GET /categories para los valores válidos. Ej: category_top=Hogar',
+        'Requerido, repetible: múltiples valores son OR entre sí. Case-sensitive — ' +
+        'es la etiqueta cruda del retailer, ver GET /categories para los valores ' +
+        'válidos. Ej: category_top=Hogar, o category_top=Limpieza&category_top=Accesorios De Limpieza',
     ),
 });
 export class BulkQueryDto extends createZodDto(BulkQuerySchema) {}

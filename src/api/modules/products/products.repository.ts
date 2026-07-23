@@ -207,9 +207,12 @@ export class ProductsRepository {
    * Orden estable (nombre ASC, `ean` como desempate) igual al default de
    * `/products`, para que la grilla del frontend no baile entre cargas.
    */
-  async listAllByCategory(categoryTop: string): Promise<Product[]> {
+  async listAllByCategory(categoryTop: string | string[]): Promise<Product[]> {
     const sql = this.sql;
-    const scopeFilter = this.scopeSql({ categoryTop: [categoryTop], onlyMatched: false });
+    const scopeFilter = this.scopeSql({
+      categoryTop: Array.isArray(categoryTop) ? categoryTop : [categoryTop],
+      onlyMatched: false,
+    });
 
     const rows = await sql<RawProductRow[]>`
       SELECT

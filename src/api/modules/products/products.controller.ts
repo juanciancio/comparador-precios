@@ -115,8 +115,9 @@ export class ProductsController {
       'vista de categoría de un tirón en vez de encadenar ~42 requests paginados ' +
       'a `GET /products` (una categoría grande como Hogar tiene >4000 productos).\n\n' +
       'Filtra huérfanos igual que `GET /products` (solo productos con al menos ' +
-      'una oferta vigente en la región activa) y acepta un único `category_top` ' +
-      'requerido. Devuelve el MISMO shape que `GET /products` (`region` + `data` ' +
+      'una oferta vigente en la región activa) y acepta `category_top` requerido, ' +
+      'uno o varios (repetible, OR entre sí — mismo formato que `GET /products`). ' +
+      'Devuelve el MISMO shape que `GET /products` (`region` + `data` ' +
       '+ `pagination`) para que el cliente tipado se reuse sin mapeo, pero no hay ' +
       'paginación real: `pagination.limit`, `pagination.total` y `data.length` ' +
       'son iguales, y `pagination.offset` es siempre 0.',
