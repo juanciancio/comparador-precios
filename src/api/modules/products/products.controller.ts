@@ -12,6 +12,7 @@ import {
 import { ApiOkResponse, ApiOperation, ApiParam, ApiTags } from '@nestjs/swagger';
 import { ApiBadRequest, ApiNotFound, ApiServerError } from '../../common/openapi/error-responses.ts';
 import {
+  BulkQueryDto,
   ListProductsQueryDto,
   ListProductsResponseDto,
   PriceHistoryQueryDto,
@@ -101,6 +102,38 @@ export class ProductsController {
   @ApiServerError()
   list(@Query() query: ListProductsQueryDto): Promise<ListProductsResponseDto> {
     return this.products.list(query);
+  }
+
+  // Declarado ANTES de @Get(':ean'): Nest matchea por orden y el param capturaría
+  // el literal 'bulk'.
+  @Get('bulk')
+  @ApiOperation({
+    summary: 'Todos los productos de una categoría en un response (sin paginar)',
+    description:
+      'Devuelve TODOS los productos de un departamento top-level en un solo ' +
+      'response, sin cap de paginación. Existe para que el frontend cargue una ' +
+      'vista de categoría de un tirón en vez de encadenar ~42 requests paginados ' +
+      'a `GET /products` (una categoría grande como Hogar tiene >4000 productos).\n\n' +
+      'Filtra huérfanos igual que `GET /products` (solo productos con al menos ' +
+      'una oferta vigente en la región activa) y acepta un único `category_top` ' +
+      'requerido. Devuelve el MISMO shape que `GET /products` (`region` + `data` ' +
+      '+ `pagination`) para que el cliente tipado se reuse sin mapeo, pero no hay ' +
+      'paginación real: `pagination.limit`, `pagination.total` y `data.length` ' +
+      'son iguales, y `pagination.offset` es siempre 0.',
+  })
+  @ApiOkResponse({
+    type: ListProductsResponseDto,
+    description: 'Todos los productos de la categoría + pagination con total == data.length.',
+    example: {
+      region: 'olavarria',
+      data: [PRODUCT_EXAMPLE],
+      pagination: { limit: 1, offset: 0, total: 1 },
+    },
+  })
+  @ApiBadRequest()
+  @ApiServerError()
+  bulk(@Query() query: BulkQueryDto): Promise<ListProductsResponseDto> {
+    return this.products.bulk(query);
   }
 
   // Declarado ANTES de @Get(':ean'): Nest matchea por orden y el param capturaría

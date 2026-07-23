@@ -195,6 +195,37 @@ export class ProductsRepository {
   }
 
   /**
+   * Todos los productos de un departamento top-level, sin cap de paginación.
+   * Alimenta `GET /products/bulk`: el frontend carga una vista de categoría de un
+   * tirón en vez de ~42 requests paginados.
+   *
+   * Reusa `scopeSql` (mismo recorte que `listProducts`, incluido el filtro de
+   * huérfanos vía `hasActiveOffer`) con `onlyMatched: false` — bulk no combina
+   * filtros, sólo acota por departamento. No hay query de `total` aparte: sin
+   * paginación, el total ES la cantidad de filas devueltas.
+   *
+   * Orden estable (nombre ASC, `ean` como desempate) igual al default de
+   * `/products`, para que la grilla del frontend no baile entre cargas.
+   */
+  async listAllByCategory(categoryTop: string): Promise<Product[]> {
+    const sql = this.sql;
+    const scopeFilter = this.scopeSql({ categoryTop: [categoryTop], onlyMatched: false });
+
+    const rows = await sql<RawProductRow[]>`
+      SELECT
+        p.ean, p.name_canonical, p.brand, p.category_path, p.image_url,
+        p.first_seen_at, p.last_seen_at,
+        ${this.retailerOffersSubquery()} AS retailers
+      FROM products p
+      WHERE TRUE ${scopeFilter}
+      ORDER BY p.name_canonical ASC NULLS LAST, p.ean ASC
+    `;
+
+    const canon = await this.brandCatalog.resolver();
+    return rows.map((r) => this.withCanonicalBrand(toProduct(r), canon));
+  }
+
+  /**
    * Productos cuyo precio vigente empezó a regir dentro de la ventana, ordenados
    * por magnitud del cambio contra el precio inmediatamente anterior.
    *

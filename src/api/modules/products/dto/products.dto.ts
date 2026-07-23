@@ -88,6 +88,25 @@ export const RecentChangesQuerySchema = z.object({
 });
 export class RecentChangesQueryDto extends createZodDto(RecentChangesQuerySchema) {}
 
+/**
+ * `GET /products/bulk` trae TODA la categoría de una, sin paginar. A diferencia
+ * de `category_top` en `/products` (repetible, opcional), acá es un único
+ * departamento y es requerido: el endpoint existe para cargar una vista de
+ * categoría de un tirón, no para combinar filtros. Un valor vacío o ausente da
+ * 400 vía el pipe global de Zod.
+ */
+export const BulkQuerySchema = z.object({
+  category_top: z
+    .string()
+    .min(1)
+    .describe(
+      'Departamento top-level exacto (primer segmento de category_path). ' +
+        'Requerido. Case-sensitive — es la etiqueta cruda del retailer, ver ' +
+        'GET /categories para los valores válidos. Ej: category_top=Hogar',
+    ),
+});
+export class BulkQueryDto extends createZodDto(BulkQuerySchema) {}
+
 export const SimilarProductsQuerySchema = z.object({
   limit: z.coerce
     .number()

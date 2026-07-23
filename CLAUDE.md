@@ -590,7 +590,7 @@ src/api/
 │   └── database/           # DatabaseModule global + token PG_CONNECTION + @InjectPg()
 └── modules/
     ├── health/             # ✅ Fase A: GET /health (SELECT 1, 200 reachable / 503 down)
-    ├── products/           # ✅ Fase B: listado, detalle, price-history, refresh, recent-changes
+    ├── products/           # ✅ Fase B: listado, bulk, detalle, price-history, refresh, recent-changes
     ├── search/             # ✅ Fase C: GET /search
     ├── compare/            # ✅ Fase C: GET /compare, GET /compare/stats
     ├── categories/         # ✅ Fase D: GET /categories (cacheado)
@@ -647,6 +647,31 @@ iniciado 13/07/2026), la ventana temporal no ejerce filtro efectivo — todas la
 filas caen dentro. El filtro efectivo viene de exigir una fila previa con precio
 distinto. Cuando el proyecto acumule más historia, la ventana comenzará a filtrar
 activamente.
+
+### Reglas de bulk
+
+`GET /products/bulk?category_top=X` devuelve **todos** los productos de un
+departamento top-level en un solo response, sin cap de paginación. Filtra
+huérfanos igual que `GET /products` (mismo `scopeSql`, mismo `hasActiveOffer`).
+Envelope igual a `GET /products` para compatibilidad de parser del frontend, que
+lo usa para carga en 2 etapas de la vista de categoría (el segundo request
+reemplaza el loop de ~42 paginados que traía Hogar en ~6s).
+
+- **`category_top` es requerido y único** (no repetible, a diferencia de
+  `/products`): el endpoint existe para cargar una categoría de un tirón, no para
+  combinar filtros. Vacío o ausente → 400 vía el pipe global de Zod.
+- **No hay paginación real:** `pagination.limit == pagination.total == data.length`
+  y `pagination.offset == 0`. Los campos se mantienen sólo para no romper el
+  parser tipado del frontend.
+- **Sin cache adicional en el backend:** cada request pega a la DB. Con el volumen
+  actual (query más grande ~495ms sobre Electro/Hogar, ~4.5k productos) y el SW
+  del frontend cacheando 6h, es aceptable. **Deuda futura:** si el tráfico crece,
+  cachear en memoria con `cache-manager` TTL 60s (el catálogo cambia 1 vez/día
+  post-scrape), igual que `recent-changes`. Hoy no hace falta: cada usuario hace
+  ~1 request de bulk por sesión.
+- **Query verificada con EXPLAIN ANALYZE:** ~495ms para la categoría más grande.
+  Usa `idx_ph_ean_valid_from`; el seq scan sobre `products` es el mismo que
+  `GET /products` (no hay índice de expresión sobre `split_part(category_path)`).
 
 ### Reglas de productos similares
 

@@ -272,6 +272,75 @@ describe('GET /products', () => {
   });
 });
 
+describe('GET /products/bulk', () => {
+  // Departamento real y estable, >100 productos: sirve para probar que bulk trae
+  // TODO sin el cap de 100 de GET /products.
+  const CATEGORY = 'Bebidas';
+
+  it('devuelve todos los productos de la categoría, sin cap de 100', async () => {
+    const res = await request(http()).get('/products/bulk').query({ category_top: CATEGORY });
+    expect(res.status).toBe(200);
+    // Más que el máximo de una página de /products: prueba que no hay cap.
+    expect(res.body.data.length).toBeGreaterThan(100);
+    for (const p of res.body.data) {
+      expect(p.categoryPath?.startsWith(`/${CATEGORY}/`)).toBe(true);
+    }
+  });
+
+  it('trae exactamente el mismo universo que GET /products con el mismo category_top', async () => {
+    const [bulk, page] = await Promise.all([
+      request(http()).get('/products/bulk').query({ category_top: CATEGORY }),
+      request(http()).get('/products').query({ category_top: CATEGORY, limit: 1 }),
+    ]);
+    expect(bulk.status).toBe(200);
+    expect(page.status).toBe(200);
+    // Mismo recorte (mismo scopeSql, mismo filtro de huérfanos): bulk devuelve
+    // exactamente lo que /products cuenta como total para esa categoría.
+    expect(bulk.body.pagination.total).toBe(page.body.pagination.total);
+  });
+
+  it('envelope: region + data + pagination, con total == limit == data.length y offset 0', async () => {
+    const res = await request(http()).get('/products/bulk').query({ category_top: CATEGORY });
+    expect(res.status).toBe(200);
+    expect(Object.keys(res.body).sort()).toEqual(['data', 'pagination', 'region']);
+    expect(res.body.region).toBe('olavarria');
+    const { limit, offset, total } = res.body.pagination;
+    expect(offset).toBe(0);
+    expect(total).toBe(res.body.data.length);
+    expect(limit).toBe(res.body.data.length);
+  });
+
+  it('filtra huérfanos: todo producto devuelto tiene al menos una oferta vigente', async () => {
+    const res = await request(http()).get('/products/bulk').query({ category_top: CATEGORY });
+    expect(res.status).toBe(200);
+    expect(res.body.data.length).toBeGreaterThan(0);
+    for (const p of res.body.data) {
+      expect(Array.isArray(p.retailers)).toBe(true);
+      expect(p.retailers.length).toBeGreaterThan(0);
+    }
+  });
+
+  it('400 sin category_top', async () => {
+    const res = await request(http()).get('/products/bulk');
+    expect(res.status).toBe(400);
+  });
+
+  it('400 con category_top vacío', async () => {
+    const res = await request(http()).get('/products/bulk').query({ category_top: '' });
+    expect(res.status).toBe(400);
+  });
+
+  it('categoría inexistente: 200 con data vacía y total 0', async () => {
+    const res = await request(http())
+      .get('/products/bulk')
+      .query({ category_top: 'DepartamentoQueNoExiste' });
+    expect(res.status).toBe(200);
+    expect(res.body.data).toHaveLength(0);
+    expect(res.body.pagination.total).toBe(0);
+    expect(res.body.pagination.limit).toBe(0);
+  });
+});
+
 describe('GET /products/:ean', () => {
   it('devuelve el producto con EAN válido', async () => {
     const res = await request(http()).get(`/products/${KNOWN_EAN}`);

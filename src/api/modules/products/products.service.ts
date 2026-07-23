@@ -14,6 +14,7 @@ import {
 } from './products.repository.ts';
 import type { Product, PriceHistoryEntry } from './dto/products.dto.ts';
 import type {
+  BulkQueryDto,
   ListProductsQueryDto,
   PriceHistoryQueryDto,
   RecentChangesQueryDto,
@@ -60,6 +61,18 @@ export class ProductsService {
       region: ACTIVE_REGION,
       data,
       pagination: { limit: query.limit, offset: query.offset, total },
+    };
+  }
+
+  async bulk(query: BulkQueryDto): Promise<ListProductsResult> {
+    const data = await this.repo.listAllByCategory(query.category_top);
+    // Mismo envelope que GET /products para que el frontend reuse el cliente
+    // tipado, pero acá no hay paginación real: limit == total == data.length,
+    // offset siempre 0.
+    return {
+      region: ACTIVE_REGION,
+      data,
+      pagination: { limit: data.length, offset: 0, total: data.length },
     };
   }
 
