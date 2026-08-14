@@ -7,24 +7,24 @@
   REPORTE CRUZADO POR EAN — Masonline vs Carrefour
 ════════════════════════════════════════════════════════════════════════════
 
-  TOTAL DE PRODUCTOS QUE MATCHEAN POR EAN: 2.816
+  TOTAL DE PRODUCTOS QUE MATCHEAN POR EAN: 2.731
   (ambas cadenas, precio vigente y disponible, price > 0)
 
 ──────────────────────────────────────────────────────────────────────────────
   DISTRIBUCIÓN DE DIFERENCIAS DE PRECIO (|diff %|)
 ──────────────────────────────────────────────────────────────────────────────
-  < 5%       1.717 ( 61.0%) ████████████████████████████████████████
-  5–10%        223 (  7.9%) █████
-  10–25%       259 (  9.2%) ██████
-  25–50%       489 ( 17.4%) ███████████
-  ≥ 50%        128 (  4.5%) ███
+  < 5%       1.587 ( 58.1%) ████████████████████████████████████████
+  5–10%        211 (  7.7%) █████
+  10–25%       278 ( 10.2%) ███████
+  25–50%       521 ( 19.1%) █████████████
+  ≥ 50%        134 (  4.9%) ███
 
 ──────────────────────────────────────────────────────────────────────────────
   ¿QUIÉN ES MÁS BARATO? (empate = |diff| ≤ 1%)
 ──────────────────────────────────────────────────────────────────────────────
-  Masonline más barato:     545 (19.4%)
-  Carrefour más barato:     900 (32.0%)
-  Empate:                 1.371 (48.7%)
+  Masonline más barato:     622 (22.8%)
+  Carrefour más barato:     839 (30.7%)
+  Empate:                 1.270 (46.5%)
 
 ──────────────────────────────────────────────────────────────────────────────
   TOP 20 MAYORES DIFERENCIAS (|diff %|) — spot-check manual
@@ -41,44 +41,44 @@
   7790150425251        3.439,00      7.159,00   108.17% M [Alicante] Azafrán Alicante blister x 2 uni
   7891132012015        1.409,00      2.899,00   105.75% M [Ají No Moto] Saborizador Ají No Moto 100 G.
   7806810201735       16.631,30     33.774,29   103.08% M [Ilko] Molde Ilko Desmontable Redondo 24 Cm
+  7891000365472          678,00      1.369,00   101.92% M [Maggi] Maggi sabor en polvo verduras 5 uni
   7891155040866        2.249,00      4.499,00   100.04% M [NADIR] Copa Nadir Para Agua Barone  490 Ml
-  4005808944385       11.654,50     23.309,00   100.00% M [Nivea Sun] Protector Solar Nivea Swim & Play Kids Fps 60 Ultr
   7702003008504       11.654,50     23.309,00   100.00% M [Nivea] Bronceador y protector solar Nivea Sun Protect & Bronz
-  4006000016740       13.459,50     26.919,00   100.00% M [Nivea Sun] Protector Solar Nivea Sun Babies & Kids Sensitive 
-  4006000016719       12.854,50     25.709,00   100.00% M [Nivea Sun] Protector Solar Humectante En Loción Nivea Sun Pro
   7790299003655        8.189,50     16.379,00   100.00% M [Ferrini] Crema sapolán light Ferrini en pote 200 cc.
   7790299003662        7.374,50     14.749,00   100.00% M [Ferrini] Crema sapolán light Ferrini en pote 200 cc.
+  4006000016740       13.459,50     26.919,00   100.00% M [Nivea Sun] Protector Solar Nivea Sun Babies & Kids Sensitive 
+  4005808944385       11.654,50     23.309,00   100.00% M [Nivea Sun] Protector Solar Nivea Swim & Play Kids Fps 60 Ultr
+  4006000016719       12.854,50     25.709,00   100.00% M [Nivea Sun] Protector Solar Humectante En Loción Nivea Sun Pro
   7806810025195    4.421.999,00     21.909,30   -99.50% C [Ilko] Set Mini Tarteras Ilko Non Stick 4 U 12 Cm Negro
-  7798167436673          949,00      1.890,00    99.16% M [Alba] Adhesivo Vinílico Alba Pegalba 40 G Color Surtido
 
 ──────────────────────────────────────────────────────────────────────────────
   DISTRIBUCIÓN POR MARCA (top 20 en el match cross-retailer)
 ──────────────────────────────────────────────────────────────────────────────
-  La Serenísima                57  ██████████████████████████████
-  Dove                         51  ███████████████████████████
-  Nivea                        47  █████████████████████████
-  Colgate                      40  █████████████████████
-  Elvive                       40  █████████████████████
-  Sedal                        35  ██████████████████
-  Arcor                        27  ██████████████
-  Knorr                        27  ██████████████
-  Alicante                     26  ██████████████
-  Milkaut                      26  ██████████████
-  Rexona                       25  █████████████
-  Matarazzo                    25  █████████████
-  Lucchetti                    23  ████████████
-  Motorola                     21  ███████████
-  Pedigree                     21  ███████████
-  Pantene                      20  ███████████
-  La Virginia                  19  ██████████
-  Elegante                     18  █████████
-  Algabo                       16  ████████
-  Tonadita                     16  ████████
+  La Serenísima                52  ██████████████████████████████
+  Nivea                        47  ███████████████████████████
+  Dove                         46  ███████████████████████████
+  Colgate                      40  ███████████████████████
+  Elvive                       37  █████████████████████
+  Sedal                        32  ██████████████████
+  Arcor                        27  ████████████████
+  Knorr                        26  ███████████████
+  Alicante                     25  ██████████████
+  Matarazzo                    25  ██████████████
+  Milkaut                      24  ██████████████
+  Rexona                       24  ██████████████
+  Lucchetti                    23  █████████████
+  Motorola                     21  ████████████
+  Pantene                      20  ████████████
+  La Virginia                  19  ███████████
+  Pedigree                     19  ███████████
+  Elegante                     18  ██████████
+  Algabo                       16  █████████
+  Electrolux                   15  █████████
 
 ──────────────────────────────────────────────────────────────────────────────
   EXCLUSIVOS POR CADENA (EAN disponible en una, no en la otra)
 ──────────────────────────────────────────────────────────────────────────────
-  Solo en Masonline: 7.867
-  Solo en Carrefour: 16.422
+  Solo en Masonline: 7.827
+  Solo en Carrefour: 16.025
 
 ════════════════════════════════════════════════════════════════════════════
