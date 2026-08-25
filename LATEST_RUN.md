@@ -7,78 +7,78 @@
   REPORTE CRUZADO POR EAN — Masonline vs Carrefour
 ════════════════════════════════════════════════════════════════════════════
 
-  TOTAL DE PRODUCTOS QUE MATCHEAN POR EAN: 3.193
+  TOTAL DE PRODUCTOS QUE MATCHEAN POR EAN: 3.096
   (ambas cadenas, precio vigente y disponible, price > 0)
 
 ──────────────────────────────────────────────────────────────────────────────
   DISTRIBUCIÓN DE DIFERENCIAS DE PRECIO (|diff %|)
 ──────────────────────────────────────────────────────────────────────────────
-  < 5%       1.909 ( 59.8%) ████████████████████████████████████████
-  5–10%        281 (  8.8%) ██████
-  10–25%       354 ( 11.1%) ███████
-  25–50%       528 ( 16.5%) ███████████
-  ≥ 50%        121 (  3.8%) ███
+  < 5%       1.867 ( 60.3%) ████████████████████████████████████████
+  5–10%        257 (  8.3%) ██████
+  10–25%       335 ( 10.8%) ███████
+  25–50%       506 ( 16.3%) ███████████
+  ≥ 50%        131 (  4.2%) ███
 
 ──────────────────────────────────────────────────────────────────────────────
   ¿QUIÉN ES MÁS BARATO? (empate = |diff| ≤ 1%)
 ──────────────────────────────────────────────────────────────────────────────
-  Masonline más barato:   1.074 (33.6%)
-  Carrefour más barato:   1.098 (34.4%)
-  Empate:                 1.021 (32.0%)
+  Masonline más barato:     942 (30.4%)
+  Carrefour más barato:   1.051 (33.9%)
+  Empate:                 1.103 (35.6%)
 
 ──────────────────────────────────────────────────────────────────────────────
   TOP 20 MAYORES DIFERENCIAS (|diff %|) — spot-check manual
 ──────────────────────────────────────────────────────────────────────────────
   EAN                     Mas $         Car $     diff%  Producto
+  7799111695634        5.676,30     38.999,00   587.05% M [Atma Hogar] Escurridor Manual Vegetales Atma Home Gris AAEV10
   7798081285128       53.071,20    214.999,00   305.11% M [Smart Life] Cafetera Smartlife Sl-Cm9402
+  7790150425251        3.439,00      7.869,00   128.82% M [Alicante] Azafrán Alicante blister x 2 uni
   7806810021609       24.289,00     55.474,30   128.39% M [Ilko] Olla 24 Cm Aluminio Ilko Gris Everyday
-  7891132001705        1.059,00      2.339,00   120.87% M [Sazón] Saborizador para arroz Sazón 60 g.
-  656750725535         2.229,00      4.809,00   115.75% M [Glow] Esponja  Fibra Parrillera  Glow 1un
+  4006000050201        2.649,00      5.879,00   121.93% M [Nivea] Jabón con glicerina Nivea orquídeas para todo tipo de 
+  7790117000590        2.649,00      5.719,00   115.89% M [Separata] Bolsas para freezer Separata  30x40 cm x 20 u.
+  7792170110568        2.129,00      4.550,00   113.72% M [Gatorade] Bebida Isotónica Gatorade Sabor Frutas Tropicales 1
+  7792170110551        2.129,00      4.550,00   113.72% M [Gatorade] Bebida Isotónica Gatorade Sabor Naranja 1.25 L
+  7792170110575        2.129,00      4.550,00   113.72% M [Gatorade] Bebida Isotónica Gatorade Sabor Manzana 1.25 L
+  7792170110704        2.129,00      4.550,00   113.72% M [Gatorade] Bebida Isotónica Gatorade Sabor Cool Blue 1.25 L
+  7791822689797        8.109,00     17.239,00   112.59% M [Rigolleau] Copa Rigolleaus Noruega 250ml X 4un
+  7500435245814       11.729,00     24.849,00   111.86% M [Gillette] Maquina Afeitar Desechable Gillette Prestobarba Car
   7791019175973        1.139,00      2.399,00   110.62% M [3 Arroyos] Copos De Maíz 3 Arroyos Miel 200 G
-  4006000016740       12.939,50     26.919,00   108.04% M [Nivea Sun] Protector Solar Nivea Sun Babies & Kids Sensitive 
+  4005808944385       11.204,50     23.309,00   108.03% M [Nivea Sun] Protector Solar Nivea Swim & Play Kids Fps 60 Ultr
   4006000016719       12.359,50     25.709,00   108.01% M [Nivea Sun] Protector Solar Humectante En Loción Nivea Sun Pro
-  7793008017950        5.749,50     11.959,00   108.00% M [Villeneuve] Protector Solar Villeneuve Humecta Y Protege Fps 
+  7891132012015        1.409,00      2.899,00   105.75% M [Ají No Moto] Saborizador Ají No Moto 100 G.
+  7798304841254        6.339,00     12.959,00   104.43% M [Nesquik] Helado De Palito Nesquik 6 U 204 G
+  7794626011177       11.319,00     22.999,00   103.19% M [Plenitud] Pañal Para Adulto Plenitud Protect Xg 8un
   7795513044780          919,00      1.849,00   101.20% M [Filgo] Bolígrafo Filgo stick azul x 4 uni
-  7793008018131        7.074,50     14.149,00   100.00% M [Villeneuve] Gel post solar Villeneuve con aloe 150 g.
-  7790299003662        7.374,50     14.749,00   100.00% M [Ferrini] Crema sapolán light Ferrini en pote 200 cc.
-  7790299003655        8.189,50     16.379,00   100.00% M [Ferrini] Crema sapolán light Ferrini en pote 200 cc.
-  7793008017998        7.799,50     15.599,00   100.00% M [Villeneuve] Protector solar baby Villeneuve FPS 60 120 cc.
-  7806810025195    4.334.999,00     21.909,30   -99.49% C [Ilko] Set Mini Tarteras Ilko Non Stick 4 U 12 Cm Negro
-  7798167436673          949,00      1.890,00    99.16% M [Alba] Adhesivo Vinílico Alba Pegalba 40 G Color Surtido
-  7798104180928          769,00      1.529,00    98.83% M [Megaprice] Camioncito Bombero Megaprice
-  70177197292          3.966,00      7.859,00    98.16% M [Twinings] Té Twinings Earl Grey 10 Saquitos
-  8906038786416        3.874,50      7.459,00    92.52% M [SRI SRI TATTVA] Crema Dental Sri Sri Tattva  Ayurvédica Libre
-  7790290007195        6.059,00     11.549,00    90.61% M [Carpano Punt E Mes] Aperitivo con alcohol Carpano Punt E Mes 
-  7798350082328        8.329,00     15.849,00    90.29% M [Duffy] Pañales talle G Duffy hiperpack 32 uni
+  7891155040866        2.249,00      4.499,00   100.04% M [NADIR] Copa Nadir Para Agua Barone  490 Ml
 
 ──────────────────────────────────────────────────────────────────────────────
   DISTRIBUCIÓN POR MARCA (top 20 en el match cross-retailer)
 ──────────────────────────────────────────────────────────────────────────────
-  La Serenísima                62  ██████████████████████████████
-  Dove                         56  ███████████████████████████
-  Nivea                        45  ██████████████████████
-  Elvive                       45  ██████████████████████
-  Sedal                        43  █████████████████████
-  Alicante                     34  ████████████████
-  Colgate                      34  ████████████████
-  Arcor                        29  ██████████████
-  Rexona                       29  ██████████████
-  Lucchetti                    27  █████████████
-  Knorr                        26  █████████████
-  Milkaut                      26  █████████████
-  Matarazzo                    24  ████████████
-  Algabo                       23  ███████████
-  La Virginia                  22  ███████████
-  Granja Del Sol               21  ██████████
-  Pedigree                     21  ██████████
-  Palmolive                    19  █████████
-  Pantene                      19  █████████
-  Terma                        18  █████████
+  Dove                         57  ██████████████████████████████
+  La Serenísima                53  ████████████████████████████
+  Nivea                        50  ██████████████████████████
+  Sedal                        44  ███████████████████████
+  Elvive                       43  ███████████████████████
+  Colgate                      38  ████████████████████
+  Alicante                     35  ██████████████████
+  Lucchetti                    28  ███████████████
+  Rexona                       28  ███████████████
+  Knorr                        27  ██████████████
+  Milkaut                      26  ██████████████
+  Algabo                       25  █████████████
+  Matarazzo                    24  █████████████
+  Arcor                        22  ████████████
+  Palmolive                    20  ███████████
+  Pantene                      20  ███████████
+  La Virginia                  19  ██████████
+  Pedigree                     19  ██████████
+  Ayudin                       18  █████████
+  La Parmesana                 17  █████████
 
 ──────────────────────────────────────────────────────────────────────────────
   EXCLUSIVOS POR CADENA (EAN disponible en una, no en la otra)
 ──────────────────────────────────────────────────────────────────────────────
-  Solo en Masonline: 8.370
-  Solo en Carrefour: 16.139
+  Solo en Masonline: 8.594
+  Solo en Carrefour: 16.082
 
 ════════════════════════════════════════════════════════════════════════════
