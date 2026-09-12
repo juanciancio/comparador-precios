@@ -7,78 +7,78 @@
   REPORTE CRUZADO POR EAN — Masonline vs Carrefour
 ════════════════════════════════════════════════════════════════════════════
 
-  TOTAL DE PRODUCTOS QUE MATCHEAN POR EAN: 4.096
+  TOTAL DE PRODUCTOS QUE MATCHEAN POR EAN: 4.142
   (ambas cadenas, precio vigente y disponible, price > 0)
 
 ──────────────────────────────────────────────────────────────────────────────
   DISTRIBUCIÓN DE DIFERENCIAS DE PRECIO (|diff %|)
 ──────────────────────────────────────────────────────────────────────────────
-  < 5%       1.720 ( 42.0%) ████████████████████████████████████████
-  5–10%        811 ( 19.8%) ███████████████████
-  10–25%       505 ( 12.3%) ████████████
-  25–50%       734 ( 17.9%) █████████████████
-  ≥ 50%        326 (  8.0%) ████████
+  < 5%       1.730 ( 41.8%) ████████████████████████████████████████
+  5–10%        838 ( 20.2%) ███████████████████
+  10–25%       511 ( 12.3%) ████████████
+  25–50%       729 ( 17.6%) █████████████████
+  ≥ 50%        334 (  8.1%) ████████
 
 ──────────────────────────────────────────────────────────────────────────────
   ¿QUIÉN ES MÁS BARATO? (empate = |diff| ≤ 1%)
 ──────────────────────────────────────────────────────────────────────────────
-  Masonline más barato:   2.042 (49.9%)
-  Carrefour más barato:   1.207 (29.5%)
-  Empate:                   847 (20.7%)
+  Masonline más barato:   2.041 (49.3%)
+  Carrefour más barato:   1.215 (29.3%)
+  Empate:                   886 (21.4%)
 
 ──────────────────────────────────────────────────────────────────────────────
   TOP 20 MAYORES DIFERENCIAS (|diff %|) — spot-check manual
 ──────────────────────────────────────────────────────────────────────────────
   EAN                     Mas $         Car $     diff%  Producto
-  7793015000426       10.646,35    499.486,00  4591.62% M [Sirena] Termotanque Sirena 90 Lts Eléctrico De Colgar
   7799111696709       23.969,00     91.999,00   283.82% M [Atma Hogar] Exprimidor Blanco Con Usb Atma Home AAEU102P
   7798122112604       49.999,00    175.859,10   251.73% M [Moulinex] Batidora De Mano Moulinex Facilita Plus 400w Blanco
-  7799111681491       15.794,35     42.899,00   171.61% M [Philco] Termo Philco de Acero Inoxidable 650ml Blanco con Pic
-  7799111682498       16.112,85     42.899,00   166.24% M [Philco] Botella Térmica Infantil De Acero Inoxidable 550ml Ce
   7806810201735       15.137,85     34.334,29   126.81% M [Ilko] Molde Ilko Desmontable Redondo 24 Cm
+  8445291082236        6.125,40     13.809,00   125.44% M [Nescafe Dolca] Café Instantáneo Nescafé® Dolca® Original 170g
+  8445291082151        6.125,40     13.809,00   125.44% M [Nescafe Dolca] Café Instantáneo Nescafé® Dolca® Suave 170 G
   7799111696747        7.869,00     16.999,00   116.02% M [Atma Hogar] Mandolina Multifunción 6 En 1 Atma Home AAMM110P
-  7792170110704        2.129,00      4.550,00   113.72% M [Gatorade] Bebida Isotónica Gatorade Sabor Cool Blue 1.25 L
   7792170110568        2.129,00      4.550,00   113.72% M [Gatorade] Bebida Isotónica Gatorade Sabor Frutas Tropicales 1
+  7792170110704        2.129,00      4.550,00   113.72% M [Gatorade] Bebida Isotónica Gatorade Sabor Cool Blue 1.25 L
   7792170110575        2.129,00      4.550,00   113.72% M [Gatorade] Bebida Isotónica Gatorade Sabor Manzana 1.25 L
+  7792170110551        2.129,00      4.550,00   113.72% M [Gatorade] Bebida Isotónica Gatorade Sabor Naranja 1.25 L
   7798225221425      169.999,00    359.828,07   111.66% M [Lusqtoff] Hidrolavadora Lüsqtoff Hl-120 1200w 7mpa De Presión
-  7793913014266        1.125,00      2.250,00   100.00% M [Tregar] Yogur Descremado Tregar Durazno 150g
-  70177197292          3.966,00      7.859,00    98.16% M [Twinings] Té Twinings Earl Grey 10 Saquitos
+  7806810025195    4.768.999,00     21.909,30   -99.54% C [Ilko] Set Mini Tarteras Ilko Non Stick 4 U 12 Cm Negro
+  7794820903254        1.024,50      2.040,00    99.12% M [Milkaut] Yogur Firme Milkaut Frutilla 180 G
   7622201806552        1.469,40      2.889,00    96.61% M [Oreo] Galletitas Oreo Golden Vainilla Rellenas Con Crema 118 
+  7792798010615        2.134,50      4.025,00    88.57% M [Stella Artois] Cerveza Rubia Stella Artois Pura Malta 473 Cc
+  7891132001682        1.259,25      2.339,00    85.75% M [Sazón] Saborizador para verduras Sazón 60 g.
   7796885483382      269.999,00    499.999,00    85.19% M [BGH] Horno Eléctrico Bgh Bhe64m25n 64l 2200w Grill Convección
-  7806810025188       20.168,85     37.169,29    84.29% M [Ilko] Molde Ilko Redondo Desmontable Non Stick 28 Cm Negro
-  7791813405016        1.839,00      3.349,00    82.11% M [H20!] Agua Saborizada H2oh! Still Sabor Pomelo 2 L
-  7791813405023        1.839,00      3.349,00    82.11% M [H20!] Agua Saborizada H2oh! Still Sabor Limoneto 2 L
-  7791813403012        1.759,00      3.200,00    81.92% M [H20!] Agua Saborizada Sin Gas H2oh Sabor Pomelo 1,5 L
-  7791813403029        1.759,00      3.200,00    81.92% M [H20!] Agua Saborizada Sin Gas H2oh Sabor Limón 1,5 L
+  7453077243161        4.703,20        700,00   -85.12% C [Go Speed] Auto Go Speed construcción metálico (Modelos Surtid
+  7790895649806        3.199,00      5.890,00    84.12% M [Ades] Bebida A Base De Almendras Ades Almendras 1 L
+  8445291121843        1.559,40      2.840,00    82.12% M [Nesquik] Cacao En Polvo Nesquik® Original 150g
 
 ──────────────────────────────────────────────────────────────────────────────
   DISTRIBUCIÓN POR MARCA (top 20 en el match cross-retailer)
 ──────────────────────────────────────────────────────────────────────────────
   La Serenísima                72  ██████████████████████████████
-  Dove                         66  ████████████████████████████
-  Sedal                        54  ███████████████████████
-  Elvive                       52  ██████████████████████
+  Dove                         64  ███████████████████████████
   Nivea                        52  ██████████████████████
-  Knorr                        48  ████████████████████
-  Alicante                     41  █████████████████
-  Arcor                        37  ███████████████
-  Rexona                       37  ███████████████
-  Colgate                      34  ██████████████
-  Milkaut                      32  █████████████
-  Algabo                       30  █████████████
+  Sedal                        51  █████████████████████
+  Elvive                       50  █████████████████████
+  Knorr                        47  ████████████████████
+  Alicante                     42  ██████████████████
+  Rexona                       40  █████████████████
+  La Virginia                  37  ███████████████
+  Arcor                        36  ███████████████
+  Milkaut                      33  ██████████████
+  Colgate                      33  ██████████████
   Lucchetti                    30  █████████████
-  Matarazzo                    29  ████████████
-  La Virginia                  27  ███████████
+  Tregar                       29  ████████████
+  Algabo                       28  ████████████
+  Matarazzo                    27  ███████████
   Pantene                      24  ██████████
-  Ayudin                       23  ██████████
-  Poett                        22  █████████
-  Cif                          22  █████████
+  Cif                          23  ██████████
   Pedigree                     22  █████████
+  Granja Del Sol               21  █████████
 
 ──────────────────────────────────────────────────────────────────────────────
   EXCLUSIVOS POR CADENA (EAN disponible en una, no en la otra)
 ──────────────────────────────────────────────────────────────────────────────
-  Solo en Masonline: 13.176
-  Solo en Carrefour: 14.867
+  Solo en Masonline: 13.784
+  Solo en Carrefour: 15.051
 
 ════════════════════════════════════════════════════════════════════════════
